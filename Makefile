@@ -14,7 +14,7 @@ endif
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help list install uninstall purge stage1 stage2 stage3 test passwords status backup-now \
+.PHONY: help list install uninstall purge stage1 stage2 stage3 test passwords credentials status backup-now \
 	$(STEP_NAMES) $(addprefix uninstall-,$(STEP_NAMES)) $(addprefix purge-,$(STEP_NAMES))
 
 help:
@@ -33,6 +33,7 @@ help:
 	@echo '  非交互执行加 CONFIRM=yes'
 	@echo '账号密码（统一在 /opt/base/credentials.env，可在安装前手填）:'
 	@echo '  make passwords [STEPS=...]      预生成，已有的不覆盖'
+	@echo '  make credentials                 显示账号密码文件位置及其中的变量名'
 	@echo '  make rotate-password-<组件>     换新密码并立即生效，如 rotate-password-redis'
 	@echo '运维:'
 	@echo '  make status                     组件/证书/备份/磁盘一览'
@@ -68,6 +69,9 @@ $(addprefix purge-,$(STEP_NAMES)):
 
 passwords:
 	$(RUN) passwords $(STEPS)
+
+credentials:
+	@$(RUN) credentials
 
 rotate-password-%:
 	$(RUN) rotate $* $(YES)

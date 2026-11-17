@@ -11,6 +11,19 @@ CRED_KINDS=(
 )
 
 cred_file() { echo "$DEPLOY_DIR/credentials.env"; }
+# make credentials：只列位置和已有的变量名，不打印密码，免得留在终端记录里
+cred_show() {
+  local f line c k
+  f=$(cred_file)
+  echo "账号密码文件: $f"
+  if [[ ! -f $f ]]; then echo "  尚未生成（安装组件或 make passwords 时生成）"; return 0; fi
+  for line in "${CREDENTIALS[@]}"; do
+    read -r c k _ <<<"$line"
+    [[ -z $(env_get "$f" "$k") ]] || printf '  %-8s %s\n' "$c" "$k"
+  done
+  echo "查看: sudo cat $f"
+}
+
 cred_gen() { python3 -c 'import secrets; print(secrets.token_hex(24))'; }
 
 cred_row() {

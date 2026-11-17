@@ -42,6 +42,7 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 | 多个步骤 | `make swap ufw ssh`（按命令行顺序）或 `make install STEPS="swap ssh"`（按步骤表顺序） |
 | 卸载 | `make uninstall`（全部，含组件）/ `make uninstall-redis` / `make uninstall STEPS="redis postgres"` |
 | 清除数据 | `make purge` / `make purge-postgres` / `make purge STEPS=3` |
+| 账号密码 | `make credentials`（文件位置及变量名） |
 | 运行状态 | `make status`（组件健康/待升级、证书剩余天数、最近备份、磁盘） |
 | 备份/恢复 | `make backup-now` / `make restore-postgres [BACKUP=<备份名>]`，见「备份与恢复」 |
 
@@ -235,7 +236,7 @@ make restore-redis BACKUP=20261117-033000 CONFIRM=yes
 
 ## 账号密码
 
-所有账号密码统一放在 `/opt/base/credentials.env`（`$DEPLOY_DIR/credentials.env`，0600，仅 root 可读），组件只从这里读：
+所有账号密码统一放在 `/opt/base/credentials.env`（`$DEPLOY_DIR/credentials.env`，0600，仅 root 可读），组件只从这里读。`make credentials` 显示文件位置和其中有哪些变量（不打印密码），查看密码用 `sudo cat /opt/base/credentials.env`。
 
 | 变量 | 组件 | 默认 |
 |---|---|---|

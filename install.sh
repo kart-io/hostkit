@@ -57,6 +57,7 @@ usage() {
 
 账号密码（统一在 \$DEPLOY_DIR/credentials.env，可在安装前手填）:
   $0 passwords [组件...]   预生成，已有的不覆盖
+  $0 credentials           显示账号密码文件位置及其中的变量名
   $0 rotate <组件> [--yes] 换新密码并立即生效
 
 运维:
@@ -92,19 +93,20 @@ main() {
     --names) list_names; return 0 ;;
   esac
   local action=install
-  [[ ${1:-} =~ ^(install|uninstall|purge|passwords|rotate|status|backup-run|restore)$ ]] && { action=$1; shift; }
+  [[ ${1:-} =~ ^(install|uninstall|purge|passwords|credentials|rotate|status|backup-run|restore)$ ]] && { action=$1; shift; }
   local targets=() a
   for a in "$@"; do
     if [[ $a == --yes ]]; then ASSUME_YES=1; else targets+=("$a"); fi
   done
   ((${#targets[@]})) || targets=(all)
 
-  if [[ $action =~ ^(passwords|rotate|status|backup-run|restore)$ ]]; then
+  if [[ $action =~ ^(passwords|credentials|rotate|status|backup-run|restore)$ ]]; then
     require_root
     check_legacy
     load_config "$BASE_DIR/config.env"
     case $action in
       passwords)  cred_ensure "${targets[@]}" ;;
+      credentials) cred_show ;;
       status)     status_report ;;
       backup-run) backup_run ;;
       rotate)
