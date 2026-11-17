@@ -24,16 +24,22 @@ status_components() {
   done
 }
 
-status_tls() {
-  local dom end days off=""
-  [[ -n $DOMAINS ]] || { echo "证书: 未配置 DOMAINS"; return; }
-  state_has tls-disabled && off="，已停用（make tls 启用）"
-  for dom in $DOMAINS; do
-    if ! cert_has "$dom"; then echo "证书: $dom 未签发（make tls）"; continue; fi
-    end=$(openssl x509 -enddate -noout -in "$(cert_dir "$dom")/fullchain.pem" | cut -d= -f2)
-    days=$(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 ))
-    echo "证书: $dom 剩余 $days 天$off"
-  done
+# 每个站点一行：服务、DNS、证书、实际访问地址，加站点访问不了时从这里看卡在哪
+status_sites() {
+  local dom s ip dns cert end
+  [[ -n $(sites) ]] || { echo "站点: 未配置 SITES"; return; }
+  ip=$(detect_public_ip 2>/dev/null) || ip=""
+  while read -r dom s; do
+    dns=-; [[ -z $ip ]] || dns=$(dns_state "$dom" "$ip")
+    if cert_has "$dom"; then
+      end=$(openssl x509 -enddate -noout -in "$(cert_dir "$dom")/fullchain.pem" | cut -d= -f2)
+      cert="剩余 $(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 )) 天"
+    else
+      cert=未签发
+    fi
+    echo "站点: $dom → $s  DNS $dns  证书 $cert  $(site_tls "$dom" && echo https || echo http)://$dom"
+  done < <(sites)
+  tls_enabled || echo "HTTPS 未启用（make tls）"
 }
 
 status_backup() {
@@ -57,7 +63,7 @@ status_report() {
   echo
   status_components
   echo
-  status_tls
+  status_sites
   status_backup
   if [[ -f $(cred_file) ]]; then echo "账号密码: $(cred_file)"; fi
   echo

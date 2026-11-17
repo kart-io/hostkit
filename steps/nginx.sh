@@ -86,7 +86,7 @@ EOF
     log "已移除 Nginx 入口 $(basename "$f")"
   done
   if ((changed == 0 && nauth)) && ! tls_on; then
-    warn "未启用 TLS，观测入口的 Basic Auth 密码以明文传输，建议配置 SITES 后执行 make tls"
+    warn "未启用 TLS，观测入口的 Basic Auth 密码以明文传输，建议执行 make tls"
   fi
   return $changed
 }
@@ -98,6 +98,8 @@ sites() {
     [[ -z $dom || $dom == \#* ]] || echo "$dom $s"
   done <<<"${SITES:-}"
 }
+
+site_domains() { sites | awk '{print $1}'; }
 
 site_bound() { sites | awk -v d="$1" '$1 == d {f=1} END {exit !f}'; }
 
@@ -211,10 +213,7 @@ render_sites() {
     [[ $body != *"return 503"* ]] || warn "$dom 绑定的 $s 未安装，访问返回 503"
     f=$d/conf.d/site-$dom.conf
     want+=("$f")
-    if site_server "$dom" "$body" | write_if_changed "$f"; then
-      changed=0
-      if tls_on && ! cert_has "$dom"; then warn "$dom 没有证书，只能 HTTP 访问；加到 DOMAINS 后执行 make tls"; fi
-    fi
+    site_server "$dom" "$body" | write_if_changed "$f" && changed=0
   done < <(sites)
   for f in "$d"/conf.d/site-*.conf; do
     [[ -e $f && " ${want[*]} " != *" $f "* && $(head -1 "$f") == "$GEN_HEADER" ]] || continue
@@ -226,7 +225,7 @@ render_sites() {
 
 nginx_purge_hint() { echo "$DEPLOY_DIR/nginx（配置、证书）及观测入口账号"; }
 
-nginx_sync() {
+nginx_render() {
   local changed=1
   render_nginx_conf && changed=0
   render_locations && changed=0
@@ -235,6 +234,13 @@ nginx_sync() {
     nginx_reload
     log "Nginx 入口已更新"
   fi
+  return 0
+}
+
+# 启用过 TLS 后，新加的站点自动签证书并切到 HTTPS
+nginx_sync() {
+  nginx_render
+  if tls_enabled && comp_running nginx && tls_issue_missing; then nginx_render; fi
   return 0
 }
 

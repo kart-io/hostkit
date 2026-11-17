@@ -82,7 +82,6 @@ load_config() {
   : "${DOCKER_REPO:=}"
   : "${REGISTRY_MIRRORS:=}"
   : "${AVOID_CIDRS:=}"
-  : "${DOMAINS:=}"
   : "${SITES:=}"
   : "${LE_EMAIL:=}"
   : "${LE_STAGING:=0}"

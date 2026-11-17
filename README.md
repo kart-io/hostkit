@@ -18,10 +18,10 @@ make list                          # 步骤列表，及各步骤是否支持卸�
 
 ```bash
 git clone git@kart.github.com:kart-io/hostkit.git && cd hostkit
-cp config.env.example config.env   # 要签证书填 DOMAINS/LE_EMAIL，域名绑定服务填 SITES，要告警填 ALERT_FEISHU_*
+cp config.env.example config.env   # 域名填 SITES、证书邮箱填 LE_EMAIL，要告警填 ALERT_FEISHU_*
 
 make install                       # 1. 基础环境：Docker、Swap、UFW、SSH 加固、网络、Nginx；按输出放行安全组
-make tls                           # 2. HTTPS（填了 DOMAINS 才需要，域名需已解析到本机公网 IP）
+make tls                           # 2. HTTPS（配了 SITES 才需要，域名需已解析到本机公网 IP）
 
 make demo                          # 3. 测试页，浏览器打开 http://<域名或公网IP>/ 看到「hostkit 部署正常」即链路通
 make uninstall-demo                #    验证完腾出 /
@@ -131,14 +131,12 @@ networks:
 
 ## 域名与 TLS
 
-两个配置分工：
+只有一个配置 **`SITES`**：每行「域名 服务」，决定域名打开什么。每个要访问的域名都写一行，主站写 `main`。
 
-- **`DOMAINS`**：证书域名。`make tls` 给**每个域名单独签一张证书**（证书名即域名），一个域名签发或续期失败不影响其他域名。
-- **`SITES`**：站点绑定，每行「域名 服务」，决定域名打开什么。每个要访问的域名都写一行，主站写 `main`。
+HTTPS 证书也按 `SITES` 来：每个域名单独一张证书（证书名即域名），一个域名签发或续期失败不影响其他域名。
 
 ```bash
 # config.env
-DOMAINS="crm.example.com logs.example.com app.example.com"
 SITES="
 crm.example.com      main
 logs.example.com     victorialogs
@@ -157,12 +155,11 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 | `demo` | 测试页 |
 | `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502；redis、postgres 不允许绑定 |
 
-- 改 `DOMAINS` 后执行 `make tls`：域名先解析到本机；只给还没有证书的域名签发，已有的不动，签好的站点切到 HTTPS。没解析到本机或签发失败的域名跳过并在最后报出，其余照常启用。
-- 改 `SITES` 后执行 `make nginx`，不会重新签发。
-- 从 `SITES` 删掉的站点自动移除；绑定的组件未安装时访问返回 503，装上后自动生效。
+- 加站点：先在 DNS 服务商把域名 A 记录指向本机公网 IP，再改 `SITES`。第一次执行 `make tls` 启用 HTTPS，之后改 `SITES` 只需 `make nginx`，新站点自动签证书。
+- 没解析到本机或签发失败的站点先只走 HTTP，并提示原因；修好后再执行 `make tls`（或 `make nginx`）重试。
+- `make status` 逐个列出站点：服务、DNS 是否指向本机、证书剩余天数、实际访问地址，访问不了时先看这里。
+- 从 `SITES` 删掉的站点自动移除，证书不再使用（文件留在磁盘上，`make purge-tls` 才删除）；绑定的组件未安装时访问返回 503，装上后自动生效。
 - 没在 `SITES` 里的域名、直接用 IP 访问：HTTP 由主站兜底（Nginx 的 default_server）；HTTPS 直接拒绝握手，不拿别的域名的证书应付。
-- `SITES` 里绑定了但没有证书（不在 `DOMAINS` 或还没签下来）的域名只能 HTTP 访问，会有提示；在 `DOMAINS` 里但没绑定的域名签了也没用，同样有提示。
-- 从 `DOMAINS` 去掉的域名不再使用其证书，站点回到 HTTP；证书文件留在磁盘上，`make purge-tls` 才删除。
 
 `sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
 

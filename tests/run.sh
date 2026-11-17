@@ -49,10 +49,9 @@ render_nginx_conf || true
 nginx_t
 echo "  ok   nginx -t（还没有任何证书和站点）"
 
-# 每个域名一张证书；shop.example.com 在 DOMAINS 但还没签发，metrics.example.com 不在 DOMAINS，两者都只走 80
-DOMAINS="example.com shop.example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com"
-for dom in $DOMAINS; do
-  [[ $dom == shop.example.com ]] && continue
+# 每个站点域名一张证书；shop、metrics 还没签下来只走 80；old.example.com 有证书但已不在 SITES，不再使用
+detect_public_ip() { return 1; }
+for dom in example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com old.example.com; do
   mkdir -p "$le/live/$dom"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$dom" \
     -keyout "$le/live/$dom/privkey.pem" -out "$le/live/$dom/fullchain.pem" 2>/dev/null
@@ -69,7 +68,11 @@ demo.example.com     demo
 am.example.com       vmalert
 "
 render_sites || true
-check test "$(certs | xargs)" == "example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com"
+for dom in logs.example.com example.com; do check test -z "$(grep 'listen 443' "$c/site-$dom.conf")"; done
+echo "  ok   没执行 make tls 时，有证书也只走 80"
+state_set tls
+render_sites || true
+check test "$(certs | xargs)" == "example.com logs.example.com www.example.com app.example.com demo.example.com am.example.com"
 check grep -q 'ssl_reject_handshake on' "$c/default.conf"
 check grep -q 'live/example.com/fullchain.pem' "$c/site-example.com.conf"
 check grep -q 'include /etc/nginx/locations/\*.conf' "$c/site-example.com.conf"
@@ -85,8 +88,8 @@ check grep -q 'http://myapp:8080' "$c/site-app.example.com.conf"
 check grep -q 'include /etc/nginx/locations/web-root.conf' "$c/site-demo.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-www.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-am.example.com.conf"
-check grep -q '^证书: shop.example.com 未签发' <<<"$(status_tls)"
-check grep -q '^证书: logs.example.com 剩余 0 天$' <<<"$(status_tls)"
+check grep -qx '站点: shop.example.com → main  DNS -  证书 未签发  http://shop.example.com' <<<"$(status_sites)"
+check grep -qxE '站点: logs.example.com → victorialogs  DNS -  证书 剩余 [0-9]+ 天  https://logs.example.com' <<<"$(status_sites)"
 echo "  ok   站点：每个域名用自己的证书，没证书的只走 80；main/内置服务/容器名:端口；未装组件返回 503"
 nginx_t
 echo "  ok   nginx -t（各站点 + 证书）"
@@ -99,6 +102,22 @@ for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:8
   if (SITES=$bad; sites_check) 2>/dev/null; then echo "  FAIL 应拒绝 SITES=\"$bad\""; exit 1; fi
 done
 echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名、redis/postgres"
+for t in "localhost 127.0.0.1|本机" "localhost 203.0.113.1|指向 127.0.0.1" "no-such-host.invalid 203.0.113.1|未解析"; do
+  read -r dom ip <<<"${t%|*}"
+  check test "$(dns_state "$dom" "$ip")" == "${t#*|}"
+done
+echo "  ok   DNS 状态：本机 / 指向其他 IP / 未解析"
+# shellcheck disable=SC2329  # 桩函数供 tls_issue_missing 调用
+msg=$(
+  SITES="no-such-host.invalid demo"
+  detect_public_ip() { echo 203.0.113.1; }
+  ccompose() { echo "调用了 certbot"; }
+  warn() { echo "$*"; }
+  tls_issue_missing || true
+)
+check grep -q '^no-such-host.invalid DNS 未解析，不是本机公网 IP 203.0.113.1' <<<"$msg"
+check test -z "$(grep 'certbot' <<<"$msg")"
+echo "  ok   DNS 没解析到本机的站点不申请证书，并提示原因"
 SITES=""
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
@@ -108,7 +127,7 @@ for combo in "|" "victoriametrics|" "victorialogs|" "victoriametrics victorialog
   "victoriametrics redis postgres|" "victoriametrics redis postgres|tls"; do
   INSTALLED=${combo%|*}
   TLS=$([[ ${combo#*|} == tls ]] && echo 1 || echo 0)
-  DOMAINS=$([[ $TLS == 1 ]] && echo "example.com logs.example.com" || true)
+  SITES=$([[ $TLS == 1 ]] && echo $'example.com main\nlogs.example.com victorialogs' || true)
   render_otel_config || true
   [[ $TLS == 0 ]] || check grep -q "file_path: /hostfs$le/live/logs.example.com/fullchain.pem" "$DEPLOY_DIR/otel/config.yaml"
   docker run --rm -e HOST_NAME=h -e REDIS_PASSWORD=x -e POSTGRES_USER=x -e POSTGRES_PASSWORD=x -v /:/hostfs:ro \
