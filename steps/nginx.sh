@@ -17,12 +17,9 @@ nginx_env() {
   echo "CERTBOT_IMAGE=$CERTBOT_IMAGE"
 }
 
-# 有证书且未卸载 tls 时用 TLS 版，否则 HTTP 版；内容变化返回 0
+# 兜底的 default_server；内容变化返回 0
 render_nginx_conf() {
-  local tpl=default-http.conf
-  tls_on && tpl=default-tls.conf
-  sed -e "s|__SERVER_NAMES__|$(main_server_names)|g" -e "s|__CERT_NAME__|$(cert_name)|g" \
-    "$BASE_DIR/templates/nginx/$tpl" | write_if_changed "$(nginx_dir)/conf.d/default.conf"
+  write_if_changed "$(nginx_dir)/conf.d/default.conf" <"$BASE_DIR/templates/nginx/default.conf"
 }
 
 nginx_prepare() {
@@ -102,11 +99,7 @@ sites() {
   done <<<"${SITES:-}"
 }
 
-# 主站 server_name；没有指向 main 的域名时用 _（主站是 default_server，未匹配的请求都到这里）
-main_server_names() {
-  local names; names=$(sites | awk '$2 == "main" {print $1}' | xargs)
-  echo "${names:-_}"
-}
+site_bound() { sites | awk -v d="$1" '$1 == d {f=1} END {exit !f}'; }
 
 # 服务名即路由的内网主机名（victorialogs、alertmanager、demo…），输出「模式 组件 路径」
 site_route() {
@@ -143,30 +136,34 @@ sites_known() {
   echo "${out[*]}"
 }
 
-# 独立域名的 server。证书含该域名时只开 443（80 由主站跳转 HTTPS），否则开 80 并保留 ACME 校验路径，供 make tls 签发
+# 域名的 server。80 始终保留 ACME 校验路径供签发和续期；有该域名的证书时 80 跳 HTTPS，站点开在 443
 site_server() {
   local dom=$1 body=$2
-  echo "$GEN_HEADER"
-  echo "server {"
-  if tls_on && cert_covers "$dom"; then
-    cat <<EOF
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-    server_name $dom;
-    ssl_certificate     /etc/letsencrypt/live/$(cert_name)/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$(cert_name)/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    add_header Strict-Transport-Security "max-age=63072000" always;
-EOF
-  else
-    cat <<EOF
+  cat <<EOF
+$GEN_HEADER
+server {
     listen 80;
     listen [::]:80;
     server_name $dom;
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
+EOF
+  if site_tls "$dom"; then
+    cat <<EOF
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name $dom;
+    ssl_certificate     /etc/letsencrypt/live/$dom/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$dom/privkey.pem;
+    add_header Strict-Transport-Security "max-age=63072000" always;
 EOF
   fi
   cat <<EOF
@@ -179,10 +176,12 @@ $body
 EOF
 }
 
-# 内置服务：根路径跳到入口路径，location 复用 locations/ 下生成的文件，组件未装时返回 503；容器名:端口：整站公开反代
+# main：主站全部入口；内置服务：根路径跳到入口路径，location 复用 locations/ 下生成的文件，组件未装时返回 503；容器名:端口：整站公开反代
 site_body() {
   local s=$1 mode n path
-  if read -r mode n path < <(site_route "$s"); then
+  if [[ $s == main ]]; then
+    echo "    include /etc/nginx/locations/*.conf;"
+  elif read -r mode n path < <(site_route "$s"); then
     if ! comp_installed "$n"; then
       printf '    location / {\n        default_type text/plain;\n        return 503 "%s 未安装\\n";\n    }\n' "$n"
       return 0
@@ -202,20 +201,19 @@ EOF
   fi
 }
 
-# 有变化返回 0。非 main 的站点各生成 conf.d/site-<域名>.conf
+# 有变化返回 0。每个站点生成 conf.d/site-<域名>.conf
 render_sites() {
   local d dom s body f changed=1 want=()
   d=$(nginx_dir)
   sites_check
   while read -r dom s; do
-    [[ $s == main ]] && continue
     body=$(site_body "$s")
     [[ $body != *"return 503"* ]] || warn "$dom 绑定的 $s 未安装，访问返回 503"
     f=$d/conf.d/site-$dom.conf
     want+=("$f")
     if site_server "$dom" "$body" | write_if_changed "$f"; then
       changed=0
-      if tls_on && ! cert_covers "$dom"; then warn "$dom 不在证书里，暂时只能 HTTP 访问；加到 DOMAINS 后执行 make tls"; fi
+      if tls_on && ! cert_has "$dom"; then warn "$dom 没有证书，只能 HTTP 访问；加到 DOMAINS 后执行 make tls"; fi
     fi
   done < <(sites)
   for f in "$d"/conf.d/site-*.conf; do
@@ -228,7 +226,6 @@ render_sites() {
 
 nginx_purge_hint() { echo "$DEPLOY_DIR/nginx（配置、证书）及观测入口账号"; }
 
-# 主站也重渲染：站点增删会改变主站 server_name
 nginx_sync() {
   local changed=1
   render_nginx_conf && changed=0

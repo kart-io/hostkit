@@ -25,12 +25,15 @@ status_components() {
 }
 
 status_tls() {
-  local f end days
-  f=$(nginx_dir)/certbot/conf/live/$(cert_name)/fullchain.pem
-  if ! cert_ready; then echo "证书: 未签发${DOMAINS:+（DOMAINS=$DOMAINS，make tls）}"; return; fi
-  end=$(openssl x509 -enddate -noout -in "$f" | cut -d= -f2)
-  days=$(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 ))
-  echo "证书: $(cert_name) 剩余 $days 天$(tls_on || echo '，已停用（make tls 启用）')"
+  local dom end days off
+  [[ -n $DOMAINS ]] || { echo "证书: 未配置 DOMAINS"; return; }
+  state_has tls-disabled && off="，已停用（make tls 启用）"
+  for dom in $DOMAINS; do
+    if ! cert_has "$dom"; then echo "证书: $dom 未签发（make tls）"; continue; fi
+    end=$(openssl x509 -enddate -noout -in "$(cert_dir "$dom")/fullchain.pem" | cut -d= -f2)
+    days=$(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 ))
+    echo "证书: $dom 剩余 $days 天$off"
+  done
 }
 
 status_backup() {

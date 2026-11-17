@@ -133,7 +133,7 @@ networks:
 
 两个配置分工：
 
-- **`DOMAINS`**：证书域名。`make tls` 把这些域名签进**同一张证书**，第一个作证书名。
+- **`DOMAINS`**：证书域名。`make tls` 给**每个域名单独签一张证书**（证书名即域名），一个域名签发或续期失败不影响其他域名。
 - **`SITES`**：站点绑定，每行「域名 服务」，决定域名打开什么。每个要访问的域名都写一行，主站写 `main`。
 
 ```bash
@@ -148,7 +148,7 @@ LE_EMAIL="ops@example.com"
 LE_STAGING=1      # 先用测试环境，不消耗正式限额
 ```
 
-上例中 `crm` 是主站，`logs` 直达 VictoriaLogs，`app` 反代到业务容器，三个域名共用一张证书。
+上例中 `crm` 是主站，`logs` 直达 VictoriaLogs，`app` 反代到业务容器，三个域名各有一张证书。
 
 | 服务 | 访问效果 |
 |---|---|
@@ -157,11 +157,12 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 | `demo` | 测试页 |
 | `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502；redis、postgres 不允许绑定 |
 
-- 改 `DOMAINS` 后执行 `make tls`：域名先解析到本机；签发或扩充证书，各站点切到 HTTPS。新增域名会重新签发一次，计入 Let's Encrypt 同域名每 7 天 5 张的限额。
+- 改 `DOMAINS` 后执行 `make tls`：域名先解析到本机；只给还没有证书的域名签发，已有的不动，签好的站点切到 HTTPS。没解析到本机或签发失败的域名跳过并在最后报出，其余照常启用。
 - 改 `SITES` 后执行 `make nginx`，不会重新签发。
 - 从 `SITES` 删掉的站点自动移除；绑定的组件未安装时访问返回 503，装上后自动生效。
-- 没在 `SITES` 里的域名、直接用 IP 访问，都由主站兜底（Nginx 的 default_server）。
-- `SITES` 里绑定了但不在 `DOMAINS` 的域名只能 HTTP 访问，会有提示。
+- 没在 `SITES` 里的域名、直接用 IP 访问：HTTP 由主站兜底（Nginx 的 default_server）；HTTPS 直接拒绝握手，不拿别的域名的证书应付。
+- `SITES` 里绑定了但没有证书（不在 `DOMAINS` 或还没签下来）的域名只能 HTTP 访问，会有提示；在 `DOMAINS` 里但没绑定的域名签了也没用，同样有提示。
+- 从 `DOMAINS` 去掉的域名不再使用其证书，站点回到 HTTP；证书文件留在磁盘上，`make purge-tls` 才删除。
 
 `sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
 
@@ -179,7 +180,7 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
   - 主机：cpu、load、memory、paging、disk、filesystem。不采集网络指标：Collector 在容器网络命名空间里，采到的不是宿主机网卡。
   - 容器（`docker_stats`）：本机所有容器的 CPU、内存、网络、块 IO、重启次数、运行时长。
   - Redis、Postgres：装了才采，账号从 `credentials.env` 读取，改密码后自动跟上。
-  - 证书（`tlscheck`）：启用 TLS 后每小时读一次 Nginx 证书剩余时间。
+  - 证书（`tlscheck`）：启用 TLS 后每小时读一次每张证书文件的剩余时间。
   - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。
 - **docker.sock**：采集容器指标要把 `/var/run/docker.sock` 只读挂进 Collector。只读挂载也能调用全部 Docker API，等同宿主机 root。Collector 不发布端口，只在 `base-net` 内收 OTLP。
 - **容器日志**（装了 VL 才启用）：读取 Docker json-file 日志，从启用后的新日志开始。

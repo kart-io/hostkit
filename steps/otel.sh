@@ -31,7 +31,7 @@ otel_post() { log "OTel Collector: 业务容器加入 $NETWORK_NAME 后发往 ot
 
 # 只给已安装的后端配导出；没有后端的信号丢给 nop，保证 OTLP 端仍可接收
 render_otel_config() {
-  local vm=0 vl=0 redis=0 pg=0 tls=0 mrx=otlp
+  local vm=0 vl=0 redis=0 pg=0 tls=0 mrx=otlp dom
   comp_installed victoriametrics && vm=1
   comp_installed victorialogs && vl=1
   # 指标只在有 VM 时采集
@@ -98,13 +98,11 @@ EOF
     tls:
       insecure: true
 EOF
-    # 经内网直连 Nginx 读证书剩余时间，不依赖域名解析
-    ((tls)) && cat <<'EOF'
-  tlscheck:
-    collection_interval: 1h
-    targets:
-      - endpoint: nginx:443
-EOF
+    # 直接读每张证书文件（宿主机根目录挂在 /hostfs），不依赖域名解析，也不受 Nginx 是否在跑影响
+    if ((tls)); then
+      printf '  tlscheck:\n    collection_interval: 1h\n    targets:\n'
+      for dom in $(certs); do printf '      - file_path: /hostfs%s/fullchain.pem\n' "$(cert_dir "$dom")"; done
+    fi
     ((vl)) && cat <<'EOF'
   filelog/docker:
     include: [/var/lib/docker/containers/*/*-json.log]

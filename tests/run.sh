@@ -33,16 +33,32 @@ comp_installed() { [[ " $INSTALLED " == *" $1 "* ]]; }
 
 echo "== nginx 模板校验（$NGINX_IMAGE，含观测入口、demo 公开入口和 SITES 各类站点）"
 le=$DEPLOY_DIR/nginx/certbot/conf
-mkdir -p "$le/live/example.com" "$DEPLOY_DIR/nginx/locations" "$DEPLOY_DIR/nginx/conf.d"
-# DOMAINS 是证书域名；metrics.example.com 只在 SITES 里绑定、不在证书里，回落到 80
+mkdir -p "$le" "$DEPLOY_DIR/nginx/locations" "$DEPLOY_DIR/nginx/conf.d"
+check() { "$@" || { echo "  FAIL $*"; exit 1; }; }
+c=$DEPLOY_DIR/nginx/conf.d
+nginx_t() {
+  docker run --rm -v "$c:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
+    -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
+}
+warn() { :; }
+INSTALLED="victoriametrics victorialogs demo"   # alert 未装：vmalert/alertmanager 站点返回 503
+render_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
+render_nginx_conf || true
+nginx_t
+echo "  ok   nginx -t（还没有任何证书和站点）"
+
+# 每个域名一张证书；shop.example.com 在 DOMAINS 但还没签发，metrics.example.com 不在 DOMAINS，两者都只走 80
 DOMAINS="example.com shop.example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com"
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=example.com \
-  -addext "subjectAltName=DNS:${DOMAINS// /,DNS:}" \
-  -keyout "$le/live/example.com/privkey.pem" -out "$le/live/example.com/fullchain.pem" 2>/dev/null
-# shop.example.com 只在 DOMAINS（证书）里、没绑定，不算主站
+for dom in $DOMAINS; do
+  [[ $dom == shop.example.com ]] && continue
+  mkdir -p "$le/live/$dom"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$dom" \
+    -keyout "$le/live/$dom/privkey.pem" -out "$le/live/$dom/fullchain.pem" 2>/dev/null
+done
 SITES="
 # 注释和空行忽略
 example.com          main
+shop.example.com     main
 logs.example.com     victorialogs
 metrics.example.com  victoriametrics
 www.example.com      alertmanager
@@ -50,35 +66,26 @@ app.example.com      myapp:8080
 demo.example.com     demo
 am.example.com       vmalert
 "
-warn() { :; }
-INSTALLED="victoriametrics victorialogs demo"   # alert 未装：vmalert/alertmanager 站点返回 503
-render_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
 render_sites || true
-render_nginx_conf || true
-check() { "$@" || { echo "  FAIL $*"; exit 1; }; }
-c=$DEPLOY_DIR/nginx/conf.d
-check test "$(cert_name)" == example.com
-check test "$(main_server_names)" == "example.com"
-check grep -q 'server_name example.com;' "$c/default.conf"
-check grep -q 'listen 443 ssl' "$c/site-logs.example.com.conf"
+check test "$(certs | xargs)" == "example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com"
+check grep -q 'ssl_reject_handshake on' "$c/default.conf"
+check grep -q 'live/example.com/fullchain.pem' "$c/site-example.com.conf"
+check grep -q 'include /etc/nginx/locations/\*.conf' "$c/site-example.com.conf"
+check grep -q 'include /etc/nginx/locations/\*.conf' "$c/site-shop.example.com.conf"
+check grep -q 'live/logs.example.com/fullchain.pem' "$c/site-logs.example.com.conf"
+check grep -q 'return 301 https' "$c/site-logs.example.com.conf"
 check grep -q 'return 302 /vl/' "$c/site-logs.example.com.conf"
-check grep -q 'listen 80;' "$c/site-metrics.example.com.conf"
+for dom in shop metrics; do
+  check grep -q 'acme-challenge' "$c/site-$dom.example.com.conf"
+  check test -z "$(grep -E 'listen 443|return 301' "$c/site-$dom.example.com.conf")"
+done
 check grep -q 'http://myapp:8080' "$c/site-app.example.com.conf"
 check grep -q 'include /etc/nginx/locations/web-root.conf' "$c/site-demo.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-www.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-am.example.com.conf"
-echo "  ok   站点：只认 SITES 绑定；证书覆盖的走 443、未覆盖走 80；内置服务/容器名:端口；未装组件返回 503"
-docker run --rm -v "$c:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
-  -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
-echo "  ok   nginx -t（TLS 主站 + 各站点）"
-for tpl in default-http.conf default-tls.conf; do
-  mkdir -p "$tmp/$tpl"
-  sed -e 's|__SERVER_NAMES__|example.com www.example.com|g' -e 's|__CERT_NAME__|example.com|g' \
-    "$ROOT/templates/nginx/$tpl" >"$tmp/$tpl/default.conf"
-  docker run --rm -v "$tmp/$tpl:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
-    -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
-  echo "  ok   $tpl"
-done
+echo "  ok   站点：每个域名用自己的证书，没证书的只走 80；main/内置服务/容器名:端口；未装组件返回 503"
+nginx_t
+echo "  ok   nginx -t（各站点 + 证书）"
 SITES="logs.example.com victorialogs"
 render_sites || true
 check test ! -e "$c/site-app.example.com.conf"
@@ -88,7 +95,7 @@ for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:8
   if (SITES=$bad; sites_check) 2>/dev/null; then echo "  FAIL 应拒绝 SITES=\"$bad\""; exit 1; fi
 done
 echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名、redis/postgres"
-DOMAINS="" SITES=""
+SITES=""
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
 TLS=0
@@ -97,7 +104,9 @@ for combo in "|" "victoriametrics|" "victorialogs|" "victoriametrics victorialog
   "victoriametrics redis postgres|" "victoriametrics redis postgres|tls"; do
   INSTALLED=${combo%|*}
   TLS=$([[ ${combo#*|} == tls ]] && echo 1 || echo 0)
+  DOMAINS=$([[ $TLS == 1 ]] && echo "example.com logs.example.com" || true)
   render_otel_config || true
+  [[ $TLS == 0 ]] || check grep -q "file_path: /hostfs$le/live/logs.example.com/fullchain.pem" "$DEPLOY_DIR/otel/config.yaml"
   docker run --rm -e HOST_NAME=h -e REDIS_PASSWORD=x -e POSTGRES_USER=x -e POSTGRES_PASSWORD=x -v /:/hostfs:ro \
     -v "$DEPLOY_DIR/otel/config.yaml:/cfg.yaml:ro" "$OTEL_IMAGE" validate --config=/cfg.yaml
   echo "  ok   已装=[$INSTALLED$([[ $TLS == 1 ]] && echo " tls")] 指标: $(grep -oE 'receivers: \[[^]]+\]' "$DEPLOY_DIR/otel/config.yaml" | head -1)"
