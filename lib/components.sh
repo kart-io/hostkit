@@ -14,6 +14,8 @@
 COMPONENTS=()
 # 经 Nginx 暴露、带 Basic Auth 的观测后端：组件 路径 内网上游
 OBS_ROUTES=()
+# 经 Nginx 公开暴露（无鉴权）的应用：组件 路径 内网上游
+WEB_ROUTES=()
 
 # 卸载时 Docker 可能已被卸载或没运行
 docker_up() { command -v docker &>/dev/null && docker info &>/dev/null; }

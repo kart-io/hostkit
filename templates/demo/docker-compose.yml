@@ -1,0 +1,16 @@
+# 由 hostkit 生成，变量见同目录 .env
+name: base-demo
+
+services:
+  demo:
+    image: ${IMAGE}
+    restart: unless-stopped
+    volumes:
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./html:/usr/share/nginx/html:ro
+    networks: [base]
+
+networks:
+  base:
+    name: ${NETWORK_NAME}
+    external: true

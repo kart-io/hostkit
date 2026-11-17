@@ -31,12 +31,12 @@ log() { :; }
 INSTALLED=""
 comp_installed() { [[ " $INSTALLED " == *" $1 "* ]]; }
 
-echo "== nginx 模板校验（$NGINX_IMAGE，含 /vm/ /vl/ /vmalert/ /am/ 入口）"
+echo "== nginx 模板校验（$NGINX_IMAGE，含 /vm/ /vl/ /vmalert/ /am/ 观测入口和 demo 公开入口 /）"
 mkdir -p "$tmp/le/live/example.com" "$DEPLOY_DIR/nginx/locations"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=example.com \
   -keyout "$tmp/le/live/example.com/privkey.pem" -out "$tmp/le/live/example.com/fullchain.pem" 2>/dev/null
-INSTALLED="victoriametrics victorialogs alert"
-render_obs_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
+INSTALLED="victoriametrics victorialogs alert demo"
+render_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
 for tpl in default-http.conf default-tls.conf; do
   mkdir -p "$tmp/$tpl"
   sed -e 's|__SERVER_NAMES__|example.com www.example.com|g' -e 's|__CERT_NAME__|example.com|g' \

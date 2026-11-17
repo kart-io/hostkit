@@ -33,6 +33,7 @@ STEPS=(
   "3 otel            OTel Collector（OTLP、主机/容器/中间件指标、容器日志）"
   "3 alert           告警（vmalert + Alertmanager → 飞书）"
   "3 backup          定时备份（systemd timer）"
+  "3 demo            测试页（Nginx / 公开访问）"
 )
 for _line in "${STEPS[@]}"; do
   read -r _ _name _ <<<"$_line"

@@ -67,6 +67,7 @@ make list                          # 步骤列表，及各步骤是否支持卸�
 | 3 | otel | OTel Collector：接收 OTLP，采集主机/容器/Redis/Postgres/证书指标、容器日志 | 采集项和导出目标按已装组件生成 |
 | 3 | alert | vmalert + Alertmanager + 飞书转发 | 规则按已装组件生成；依赖 VictoriaMetrics |
 | 3 | backup | systemd timer 每天备份已运行的组件 | 只备份正在运行、支持备份的组件 |
+| 3 | demo | 测试页容器，Nginx `/` 公开访问，页面显示容器名、Host、客户端 IP | 验证 公网 → Nginx → `base-net` 容器 整条链路；占用 `/`，业务要挂 `/` 前先 `make uninstall-demo` |
 
 ## 需要人工处理的事
 
@@ -85,9 +86,10 @@ credentials.env                  # 所有账号密码（0600），见「账号�
 <组件>/docker-compose.yml        # 从 templates/<组件>/ 复制，勿手改
 <组件>/.env                      # 镜像版本、密码等（0600）
 nginx/conf.d/default.conf        # 生成，勿手改
-nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口
+nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口，web-*.conf 为生成的公开入口（如 demo）
 nginx/certbot/{conf,www,logs}
 redis/data  postgres/data  victoriametrics/data  victorialogs/data
+demo/html  demo/conf.d            # 测试页，从 templates/demo/ 复制
 otel/config.yaml                 # 按已装组件生成，勿手改
 alert/rules/*.yml                # 按已装组件生成，勿手改
 alert/alertmanager.yml  alert/feishu.py  alert/am-data

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hostkit 测试页</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f8; color: #1f2933;
+         font: 16px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  main { width: min(560px, calc(100% - 32px)); background: #fff; border-radius: 12px; padding: 28px 32px;
+         box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p { margin: 0 0 20px; color: #52606d; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; }
+  dt { color: #7b8794; }
+  dd { margin: 0; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #12161b; color: #e4e7eb; }
+    main { background: #1c2128; box-shadow: none; }
+    p, dt { color: #9aa5b1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>✅ hostkit 部署正常</h1>
+  <p>请求已经过 Nginx 转发到 base-net 内的 demo 容器。</p>
+  <dl>
+    <dt>容器</dt><dd><!--# echo var="hostname" --></dd>
+    <dt>Host</dt><dd><!--# echo var="http_host" default="-" --></dd>
+    <dt>客户端</dt><dd><!--# echo var="http_x_forwarded_for" default="-" --></dd>
+    <dt>时间</dt><dd><!--# echo var="date_local" --></dd>
+  </dl>
+</main>
+</body>
+</html>

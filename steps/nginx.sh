@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Nginx 反代（80/443），以及观测后端的 Basic Auth 入口
+# Nginx 反代（80/443），以及观测后端的 Basic Auth 入口和应用的公开入口
 
 COMPONENTS+=("nginx nginx http 80 /healthz")
 # 观测入口（/vm/ /vl/ /vmalert/ /am/）的 Basic Auth 账号
@@ -52,22 +52,27 @@ ensure_obs_auth() {
   log "观测入口账号已更新，见 $(cred_file) 的 OBS_AUTH_USER/OBS_AUTH_PASSWORD"
 }
 
-# 有变化返回 0。一个组件可有多个入口，文件按路径命名；不再需要的生成文件（看文件头，含旧命名）删除，业务文件不动
-render_obs_locations() {
-  local d line n path upstream f changed=1 want=()
+# 有变化返回 0。观测入口带 Basic Auth、文件名 obs-<路径>，公开入口文件名 web-<路径>；
+# 不再需要的生成文件（看文件头，含旧命名）删除，业务文件不动
+render_locations() {
+  local d line mode n path upstream f auth changed=1 nauth=0 want=()
   d=$(nginx_dir)
-  for line in "${OBS_ROUTES[@]}"; do
-    read -r n path upstream <<<"$line"
+  for line in "${OBS_ROUTES[@]/#/obs }" "${WEB_ROUTES[@]/#/web }"; do
+    read -r mode n path upstream <<<"$line"
     comp_installed "$n" || continue
-    f=$d/locations/obs-${path//\//}.conf
+    f=${path//\//}
+    f=$d/locations/$mode-${f:-root}.conf
     want+=("$f")
-    ensure_obs_auth && changed=0
+    auth=""
+    if [[ $mode == obs ]]; then
+      ensure_obs_auth && changed=0
+      auth=$'\n    auth_basic "'$n$'";\n    auth_basic_user_file /etc/nginx/auth/htpasswd;'
+      ((++nauth))
+    fi
     # 用变量 + Docker DNS 运行时解析，后端没起时 nginx 也能正常加载
     write_if_changed "$f" <<EOF && changed=0
 $GEN_HEADER
-location $path {
-    auth_basic "$n";
-    auth_basic_user_file /etc/nginx/auth/htpasswd;
+location $path {$auth
     resolver 127.0.0.11 valid=10s;
     set \$upstream http://$upstream;
     proxy_pass \$upstream;
@@ -81,7 +86,7 @@ EOF
     rm -f "$f"; changed=0
     log "已移除 Nginx 入口 $(basename "$f")"
   done
-  if ((changed == 0 && ${#want[@]})) && ! tls_on; then
+  if ((changed == 0 && nauth)) && ! tls_on; then
     warn "未启用 TLS，观测入口的 Basic Auth 密码以明文传输，建议配置 DOMAINS 后执行 make tls"
   fi
   return $changed
@@ -90,7 +95,7 @@ EOF
 nginx_purge_hint() { echo "$DEPLOY_DIR/nginx（配置、证书）及观测入口账号"; }
 
 nginx_sync() {
-  if render_obs_locations && comp_running nginx; then
+  if render_locations && comp_running nginx; then
     nginx_reload
     log "Nginx 观测入口已更新"
   fi
