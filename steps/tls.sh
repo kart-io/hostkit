@@ -97,7 +97,12 @@ tls_uninstall() {
 }
 
 tls_purge() {
-  safe_rm_dir "$(nginx_dir)/certbot/conf"
+  local d; d=$(nginx_dir)/certbot/conf
+  # 是运行中 nginx 的 bind mount，删目录后容器仍指向已删的旧目录，重签的证书它看不到；只清空内容
+  if [[ -d $d ]]; then
+    find "$d" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    log "已清空 $d"
+  fi
   safe_rm_dir "$(nginx_dir)/certbot/logs"
   state_del tls-disabled
 }
