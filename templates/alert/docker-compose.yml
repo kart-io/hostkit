@@ -1,0 +1,48 @@
+# 由 hostkit 生成，变量见同目录 .env；规则见 rules/
+name: base-alert
+
+services:
+  vmalert:
+    image: ${IMAGE}
+    restart: unless-stopped
+    command:
+      - -datasource.url=http://victoriametrics:8428/vm
+      # 告警状态写回 VM，重启后 for 计时不丢
+      - -remoteRead.url=http://victoriametrics:8428/vm
+      - -remoteWrite.url=http://victoriametrics:8428/vm
+      - -notifier.url=http://alertmanager:9093/am
+      - -rule=/etc/vmalert/rules/*.yml
+      - -http.pathPrefix=/vmalert
+    volumes:
+      - ./rules:/etc/vmalert/rules:ro
+    networks: [base]
+
+  alertmanager:
+    image: ${ALERTMANAGER_IMAGE}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.route-prefix=/am
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./am-data:/alertmanager
+    networks: [base]
+
+  alert-feishu:
+    image: ${PYTHON_IMAGE}
+    restart: unless-stopped
+    user: "65534:65534"
+    command: ["python", "-u", "/app/feishu.py"]
+    environment:
+      FEISHU_WEBHOOK: ${FEISHU_WEBHOOK}
+      FEISHU_SECRET: ${FEISHU_SECRET}
+      HOST_NAME: ${HOST_NAME}
+    volumes:
+      - ./feishu.py:/app/feishu.py:ro
+    networks: [base]
+
+networks:
+  base:
+    name: ${NETWORK_NAME}
+    external: true

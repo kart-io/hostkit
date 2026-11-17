@@ -1,0 +1,21 @@
+# 由 hostkit 生成，变量见同目录 .env
+name: base-victoriametrics
+
+services:
+  victoriametrics:
+    image: ${IMAGE}
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=${RETENTION}
+      - -http.pathPrefix=/vm
+      # OTel 指标名转成 Prometheus 风格（system_memory_usage_bytes），PromQL/告警规则按此书写
+      - -opentelemetry.usePrometheusNaming
+    volumes:
+      - ./data:/victoria-metrics-data
+    networks: [base]
+
+networks:
+  base:
+    name: ${NETWORK_NAME}
+    external: true

@@ -1,0 +1,13 @@
+# 由 hostkit 生成，勿手改；通知统一经 alert-feishu 转发到飞书
+route:
+  receiver: feishu
+  group_by: [alertname, component]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: feishu
+    webhook_configs:
+      - url: http://alert-feishu:8080/
+        send_resolved: true

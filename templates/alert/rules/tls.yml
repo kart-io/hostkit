@@ -1,0 +1,9 @@
+# 证书剩余时间来自 OTel tlscheck；正常 30 天内会自动续期，到 14 天说明续期失败
+groups:
+  - name: tls
+    rules:
+      - alert: CertExpiringSoon
+        expr: tlscheck_time_left_seconds < 14 * 86400
+        labels: {severity: critical}
+        annotations:
+          summary: '证书 {{ $labels.tlscheck_x509_cn }} 剩余 {{ $value | humanizeDuration }}，自动续期可能失败，见 make status'

@@ -1,0 +1,19 @@
+# 由 hostkit 生成，变量见同目录 .env
+name: base-victorialogs
+
+services:
+  victorialogs:
+    image: ${IMAGE}
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=${RETENTION}
+      - -http.pathPrefix=/vl
+    volumes:
+      - ./data:/victoria-logs-data
+    networks: [base]
+
+networks:
+  base:
+    name: ${NETWORK_NAME}
+    external: true

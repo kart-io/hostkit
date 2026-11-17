@@ -1,0 +1,31 @@
+# 主机指标来自 OTel hostmetrics
+groups:
+  - name: host
+    rules:
+      - alert: HostMetricsMissing
+        expr: absent_over_time(system_memory_utilization_ratio[5m])
+        # 刚安装时还没有数据，跳过启动期
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: '10 分钟没有收到主机指标，检查 OTel Collector（make status）'
+      - alert: DiskUsageHigh
+        expr: max without (scope_name, scope_version, mode) (system_filesystem_utilization_ratio{type=~"ext4|xfs|btrfs|zfs"}) > 0.85
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: '磁盘 {{ $labels.mountpoint }} 已用 {{ $value | humanizePercentage }}'
+      - alert: MemoryUsageHigh
+        expr: system_memory_utilization_ratio{state="used"} > 0.9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: '内存已用 {{ $value | humanizePercentage }}'
+      - alert: LoadHigh
+        expr: |
+          max without (scope_name, scope_version) (system_cpu_load_average_15m)
+            / max without (scope_name, scope_version) (system_cpu_logical_count) > 2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: '15 分钟负载为 CPU 核数的 {{ $value | humanize }} 倍'

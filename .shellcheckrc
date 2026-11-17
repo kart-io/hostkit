@@ -1,0 +1,4 @@
+source-path=SCRIPTDIR
+external-sources=true
+# 步骤分文件、由 install.sh 动态 source，单文件检查时跨文件的全局变量（ARCH、CLOUD、OBS_ROUTES 等）会误报
+disable=SC2034,SC2153

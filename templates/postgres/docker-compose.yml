@@ -1,0 +1,20 @@
+# 由 hostkit 生成，变量见同目录 .env
+name: base-postgres
+
+services:
+  postgres:
+    image: ${IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Postgres 18 起数据目录为 /var/lib/postgresql/<major>/docker，挂父目录
+    volumes:
+      - ./data:/var/lib/postgresql
+    shm_size: 256mb
+    networks: [base]
+
+networks:
+  base:
+    name: ${NETWORK_NAME}
+    external: true

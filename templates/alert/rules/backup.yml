@@ -1,0 +1,14 @@
+# 指标由 make backup 的定时任务每次运行后推送；按每天备份一次设定阈值
+groups:
+  - name: backup
+    rules:
+      - alert: BackupFailed
+        expr: last_over_time(__METRIC_PREFIX___backup_success[2d]) == 0
+        labels: {severity: critical}
+        annotations:
+          summary: '{{ $labels.component }} 最近一次备份失败，见 journalctl -u __PROJECT__-backup'
+      - alert: BackupNotRunning
+        expr: time() - last_over_time(__METRIC_PREFIX___backup_last_run_timestamp_seconds[7d]) > 26 * 3600
+        labels: {severity: critical}
+        annotations:
+          summary: '超过 26 小时没有运行备份，检查 systemctl list-timers __PROJECT__-backup.timer'
