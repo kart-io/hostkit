@@ -12,6 +12,28 @@ make help                          # 查看所有目标
 make list                          # 步骤列表，及各步骤是否支持卸载/清数据
 ```
 
+### 新主机部署流程
+
+在目标 Ubuntu（22.04/24.04/26.04）上执行，非 root 时 make 会自动加 sudo：
+
+```bash
+git clone git@kart.github.com:kart-io/hostkit.git && cd hostkit
+cp config.env.example config.env   # 要签证书填 DOMAINS/LE_EMAIL，要告警填 ALERT_FEISHU_*
+
+make install                       # 1. 基础环境：Docker、Swap、UFW、SSH 加固、网络、Nginx；按输出放行安全组
+make tls                           # 2. HTTPS（填了 DOMAINS 才需要，域名需已解析到本机公网 IP）
+
+make demo                          # 3. 测试页，浏览器打开 http://<域名或公网IP>/ 看到「hostkit 部署正常」即链路通
+make uninstall-demo                #    验证完腾出 /
+
+make redis postgres                # 4. 可选组件按需装
+make victoriametrics victorialogs otel
+make alert                         #    飞书告警，依赖 victoriametrics
+make backup                        #    每天定时备份
+
+make status                        # 5. 查看整体状态；账号密码在 /opt/base/credentials.env
+```
+
 | 操作 | 命令 |
 |---|---|
 | 基础环境 | `make install`（阶段 1、2，不含可选组件） |
