@@ -31,37 +31,63 @@ log() { :; }
 INSTALLED=""
 comp_installed() { [[ " $INSTALLED " == *" $1 "* ]]; }
 
-echo "== nginx 模板校验（$NGINX_IMAGE，含 /vm/ /vl/ /vmalert/ /am/ 观测入口、观测独立域名和 demo 公开入口 /）"
+echo "== nginx 模板校验（$NGINX_IMAGE，含观测入口、demo 公开入口和 SITES 各类站点）"
 le=$DEPLOY_DIR/nginx/certbot/conf
-mkdir -p "$le/live/example.com" "$DEPLOY_DIR/nginx/locations"
-# 证书含 logs.example.com、不含 metrics.example.com：VL 走 443，VM 回落到 80
+mkdir -p "$le/live/example.com" "$DEPLOY_DIR/nginx/locations" "$DEPLOY_DIR/nginx/conf.d"
+# DOMAINS 是证书域名；metrics.example.com 只在 SITES 里绑定、不在证书里，回落到 80
+DOMAINS="example.com shop.example.com www.example.com logs.example.com app.example.com demo.example.com am.example.com"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=example.com \
-  -addext "subjectAltName=DNS:example.com,DNS:www.example.com,DNS:logs.example.com" \
+  -addext "subjectAltName=DNS:${DOMAINS// /,DNS:}" \
   -keyout "$le/live/example.com/privkey.pem" -out "$le/live/example.com/fullchain.pem" 2>/dev/null
-DOMAINS="example.com www.example.com" VL_DOMAIN=logs.example.com VM_DOMAIN=metrics.example.com AM_DOMAIN=example.com
+# shop.example.com 只在 DOMAINS（证书）里、没绑定，不算主站
+SITES="
+# 注释和空行忽略
+example.com          main
+logs.example.com     victorialogs
+metrics.example.com  victoriametrics
+www.example.com      alertmanager
+app.example.com      myapp:8080
+demo.example.com     demo
+am.example.com       vmalert
+"
 warn() { :; }
-INSTALLED="victoriametrics victorialogs alert demo"
+INSTALLED="victoriametrics victorialogs demo"   # alert 未装：vmalert/alertmanager 站点返回 503
 render_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
+render_sites || true
+render_nginx_conf || true
 check() { "$@" || { echo "  FAIL $*"; exit 1; }; }
-check test "$(tls_domains)" == "example.com www.example.com logs.example.com metrics.example.com"
-check grep -q 'listen 443 ssl' "$DEPLOY_DIR/nginx/conf.d/obs-vl.conf"
-check grep -q 'listen 80' "$DEPLOY_DIR/nginx/conf.d/obs-vm.conf"
-check test ! -e "$DEPLOY_DIR/nginx/conf.d/obs-am.conf"
-echo "  ok   独立域名：证书覆盖的走 443，未覆盖的走 80，与 DOMAINS 重复的忽略"
+c=$DEPLOY_DIR/nginx/conf.d
+check test "$(cert_name)" == example.com
+check test "$(main_server_names)" == "example.com"
+check grep -q 'server_name example.com;' "$c/default.conf"
+check grep -q 'listen 443 ssl' "$c/site-logs.example.com.conf"
+check grep -q 'return 302 /vl/' "$c/site-logs.example.com.conf"
+check grep -q 'listen 80;' "$c/site-metrics.example.com.conf"
+check grep -q 'http://myapp:8080' "$c/site-app.example.com.conf"
+check grep -q 'include /etc/nginx/locations/web-root.conf' "$c/site-demo.example.com.conf"
+check grep -q 'return 503 "alert 未安装' "$c/site-www.example.com.conf"
+check grep -q 'return 503 "alert 未安装' "$c/site-am.example.com.conf"
+echo "  ok   站点：只认 SITES 绑定；证书覆盖的走 443、未覆盖走 80；内置服务/容器名:端口；未装组件返回 503"
+docker run --rm -v "$c:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
+  -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
+echo "  ok   nginx -t（TLS 主站 + 各站点）"
 for tpl in default-http.conf default-tls.conf; do
   mkdir -p "$tmp/$tpl"
-  cp "$DEPLOY_DIR"/nginx/conf.d/obs-*.conf "$tmp/$tpl/"
   sed -e 's|__SERVER_NAMES__|example.com www.example.com|g' -e 's|__CERT_NAME__|example.com|g' \
     "$ROOT/templates/nginx/$tpl" >"$tmp/$tpl/default.conf"
   docker run --rm -v "$tmp/$tpl:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
     -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
   echo "  ok   $tpl"
 done
-VM_DOMAIN=""
-render_locations 2>/dev/null || true
-check test ! -e "$DEPLOY_DIR/nginx/conf.d/obs-vm.conf"
-echo "  ok   去掉域名配置后移除对应 server"
-DOMAINS="" VL_DOMAIN="" AM_DOMAIN=""
+SITES="logs.example.com victorialogs"
+render_sites || true
+check test ! -e "$c/site-app.example.com.conf"
+echo "  ok   从 SITES 去掉的站点自动移除"
+for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:80" $'a.com main\na.com demo'; do
+  if (SITES=$bad; sites_check) 2>/dev/null; then echo "  FAIL 应拒绝 SITES=\"$bad\""; exit 1; fi
+done
+echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名"
+DOMAINS="" SITES=""
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
 TLS=0

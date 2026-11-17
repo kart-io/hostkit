@@ -102,7 +102,6 @@ main() {
 
   if [[ $action =~ ^(passwords|credentials|rotate|status|backup-run|restore)$ ]]; then
     require_root
-    check_legacy
     load_config "$BASE_DIR/config.env"
     case $action in
       passwords)  cred_ensure "${targets[@]}" ;;
@@ -134,7 +133,6 @@ main() {
   done
 
   require_root
-  check_legacy
   load_config "$BASE_DIR/config.env"
   detect_os
   apt_install curl ca-certificates python3 iproute2 openssl

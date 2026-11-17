@@ -2,8 +2,8 @@
 # 告警：vmalert 按规则查 VictoriaMetrics → Alertmanager 分组去重 → 飞书机器人
 
 COMPONENTS+=("alert vmalert http 8880 /vmalert/health")
-OBS_ROUTES+=("alert /vmalert/ vmalert:8880 VMALERT_DOMAIN")
-OBS_ROUTES+=("alert /am/ alertmanager:9093 AM_DOMAIN")
+OBS_ROUTES+=("alert /vmalert/ vmalert:8880")
+OBS_ROUTES+=("alert /am/ alertmanager:9093")
 
 # 规则文件 templates/alert/rules/<名称>.yml 与启用条件（命令）；containers 规则按已装组件生成
 ALERT_RULES=(

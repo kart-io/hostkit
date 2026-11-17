@@ -15,12 +15,6 @@ die()  { printf '\033[31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
 require_root() { [[ $EUID -eq 0 ]] || die "请用 root 或 sudo 运行"; }
 
-# 改名前用 install-base 部署过的机器不自动迁移，避免两套状态和 timer 并存
-check_legacy() {
-  [[ -d /var/lib/install-base ]] || return 0
-  die "本机按旧名 install-base 部署过（/var/lib/install-base）。改名后不自动迁移：先用旧版本 make uninstall（数据保留），删除 /var/lib/install-base，再用本版本安装"
-}
-
 confirm() {
   [[ ${ASSUME_YES:-0} == 1 ]] && return 0
   [[ -t 0 ]] || die "$1 非交互环境请加 --yes（make 中用 CONFIRM=yes）"
@@ -89,6 +83,7 @@ load_config() {
   : "${REGISTRY_MIRRORS:=}"
   : "${AVOID_CIDRS:=}"
   : "${DOMAINS:=}"
+  : "${SITES:=}"
   : "${LE_EMAIL:=}"
   : "${LE_STAGING:=0}"
   : "${TLS_SKIP_DNS_CHECK:=0}"

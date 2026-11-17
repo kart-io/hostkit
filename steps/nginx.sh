@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Nginx 反代（80/443），以及观测后端的 Basic Auth 入口和应用的公开入口
+# Nginx 反代（80/443）：主站、观测后端的 Basic Auth 入口、应用的公开入口，以及 SITES 配置的各域名站点
 
 COMPONENTS+=("nginx nginx http 80 /healthz")
 # 观测入口（/vm/ /vl/ /vmalert/ /am/）的 Basic Auth 账号
@@ -21,11 +21,12 @@ nginx_env() {
 render_nginx_conf() {
   local tpl=default-http.conf
   tls_on && tpl=default-tls.conf
-  sed -e "s|__SERVER_NAMES__|${DOMAINS:-_}|g" -e "s|__CERT_NAME__|$(cert_name)|g" \
+  sed -e "s|__SERVER_NAMES__|$(main_server_names)|g" -e "s|__CERT_NAME__|$(cert_name)|g" \
     "$BASE_DIR/templates/nginx/$tpl" | write_if_changed "$(nginx_dir)/conf.d/default.conf"
 }
 
 nginx_prepare() {
+  sites_check
   install -d -m 0755 "$(nginx_dir)"/{conf.d,locations,auth} "$(nginx_dir)"/certbot/{conf,www,logs}
   render_nginx_conf
 }
@@ -52,10 +53,96 @@ ensure_obs_auth() {
   log "观测入口账号已更新，见 $(cred_file) 的 OBS_AUTH_USER/OBS_AUTH_PASSWORD"
 }
 
-# 观测入口的独立域名：根路径跳到入口路径，location 复用 locations/ 下生成的同名文件。
-# 证书含该域名时只开 443（80 由默认 server 跳转 HTTPS），否则开 80 并保留 ACME 校验路径，供 make tls 签发
-obs_domain_server() {
-  local dom=$1 path=$2 loc=$3
+# 路由文件名：观测入口 obs-<路径>，公开入口 web-<路径>，/ 记为 root
+route_file() { local f=${2//\//}; echo "$1-${f:-root}.conf"; }
+
+# 有变化返回 0。观测入口带 Basic Auth，公开入口不带；不再需要的生成文件（看文件头）删除，业务文件不动
+render_locations() {
+  local d line mode n path upstream f auth changed=1 nauth=0 want=()
+  d=$(nginx_dir)
+  for line in "${OBS_ROUTES[@]/#/obs }" "${WEB_ROUTES[@]/#/web }"; do
+    read -r mode n path upstream <<<"$line"
+    comp_installed "$n" || continue
+    f=$d/locations/$(route_file "$mode" "$path")
+    want+=("$f")
+    auth=""
+    if [[ $mode == obs ]]; then
+      ensure_obs_auth && changed=0
+      auth=$'\n    auth_basic "'$n$'";\n    auth_basic_user_file /etc/nginx/auth/htpasswd;'
+      ((++nauth))
+    fi
+    # 用变量 + Docker DNS 运行时解析，后端没起时 nginx 也能正常加载
+    write_if_changed "$f" <<EOF && changed=0
+$GEN_HEADER
+location $path {$auth
+    resolver 127.0.0.11 valid=10s;
+    set \$upstream http://$upstream;
+    proxy_pass \$upstream;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+}
+EOF
+  done
+  for f in "$d"/locations/*.conf; do
+    [[ -e $f && " ${want[*]} " != *" $f "* && $(head -1 "$f") == "$GEN_HEADER" ]] || continue
+    rm -f "$f"; changed=0
+    log "已移除 Nginx 入口 $(basename "$f")"
+  done
+  if ((changed == 0 && nauth)) && ! tls_on; then
+    warn "未启用 TLS，观测入口的 Basic Auth 密码以明文传输，建议配置 SITES 后执行 make tls"
+  fi
+  return $changed
+}
+
+# 站点表：SITES 去掉空行和注释，每行「域名 服务」
+sites() {
+  local dom s
+  while read -r dom s _; do
+    [[ -z $dom || $dom == \#* ]] || echo "$dom $s"
+  done <<<"${SITES:-}"
+}
+
+# 主站 server_name；没有指向 main 的域名时用 _（主站是 default_server，未匹配的请求都到这里）
+main_server_names() {
+  local names; names=$(sites | awk '$2 == "main" {print $1}' | xargs)
+  echo "${names:-_}"
+}
+
+# 服务名即路由的内网主机名（victorialogs、alertmanager、demo…），输出「模式 组件 路径」
+site_route() {
+  local line mode n path upstream
+  for line in "${OBS_ROUTES[@]/#/obs }" "${WEB_ROUTES[@]/#/web }"; do
+    read -r mode n path upstream <<<"$line"
+    [[ ${upstream%%:*} == "$1" ]] && { echo "$mode $n $path"; return 0; }
+  done
+  return 1
+}
+
+# 配置错误在写任何文件前拦下；不能放在 $() 里调用，die 只会退出子 shell
+sites_check() {
+  local dom s seen=" "
+  while read -r dom s; do
+    [[ $dom =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || die "SITES: 域名不合法: $dom"
+    [[ $seen != *" $dom "* ]] || die "SITES: $dom 重复"
+    seen+="$dom "
+    [[ -n $s ]] || die "SITES: $dom 缺少服务，写成「$dom 服务」"
+    [[ $s == main || $s =~ ^[A-Za-z0-9_.-]+:[0-9]+$ ]] || site_route "$s" >/dev/null ||
+      die "SITES: $dom 的服务 $s 不认识；可用 main、$(sites_known)，或 容器名:端口"
+  done < <(sites)
+}
+
+sites_known() {
+  local line upstream out=()
+  for line in "${OBS_ROUTES[@]}" "${WEB_ROUTES[@]}"; do
+    read -r _ _ upstream <<<"$line"
+    out+=("${upstream%%:*}")
+  done
+  echo "${out[*]}"
+}
+
+# 独立域名的 server。证书含该域名时只开 443（80 由主站跳转 HTTPS），否则开 80 并保留 ACME 校验路径，供 make tls 签发
+site_server() {
+  local dom=$1 body=$2
   echo "$GEN_HEADER"
   echo "server {"
   if tls_on && cert_covers "$dom"; then
@@ -80,74 +167,73 @@ EOF
 EOF
   fi
   cat <<EOF
-    location = / {
-        return 302 $path;
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
     }
-    include /etc/nginx/locations/$loc;
+$body
 }
 EOF
 }
 
-# 有变化返回 0。观测入口带 Basic Auth、文件名 obs-<路径>，公开入口文件名 web-<路径>；
-# 观测入口配了独立域名时另生成 conf.d/obs-<路径>.conf。
-# 不再需要的生成文件（看文件头，含旧命名）删除，业务文件不动
-render_locations() {
-  local d line mode n path upstream dvar dom name f auth changed=1 nauth=0 want=()
-  d=$(nginx_dir)
-  for line in "${OBS_ROUTES[@]/#/obs }" "${WEB_ROUTES[@]/#/web }"; do
-    read -r mode n path upstream dvar <<<"$line"
-    comp_installed "$n" || continue
-    name=${path//\//}
-    name=$mode-${name:-root}.conf
-    f=$d/locations/$name
-    want+=("$f")
-    auth=""
-    if [[ $mode == obs ]]; then
-      ensure_obs_auth && changed=0
-      auth=$'\n    auth_basic "'$n$'";\n    auth_basic_user_file /etc/nginx/auth/htpasswd;'
-      ((++nauth))
+# 内置服务：根路径跳到入口路径，location 复用 locations/ 下生成的文件，组件未装时返回 503；容器名:端口：整站公开反代
+site_body() {
+  local s=$1 mode n path
+  if read -r mode n path < <(site_route "$s"); then
+    if ! comp_installed "$n"; then
+      printf '    location / {\n        default_type text/plain;\n        return 503 "%s 未安装\\n";\n    }\n' "$n"
+      return 0
     fi
-    # 用变量 + Docker DNS 运行时解析，后端没起时 nginx 也能正常加载
-    write_if_changed "$f" <<EOF && changed=0
-$GEN_HEADER
-location $path {$auth
-    resolver 127.0.0.11 valid=10s;
-    set \$upstream http://$upstream;
-    proxy_pass \$upstream;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-}
+    [[ $path == / ]] || printf '    location = / {\n        return 302 %s;\n    }\n' "$path"
+    echo "    include /etc/nginx/locations/$(route_file "$mode" "$path");"
+  else
+    cat <<EOF
+    location / {
+        resolver 127.0.0.11 valid=10s;
+        set \$upstream http://$s;
+        proxy_pass \$upstream;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
 EOF
-    dom=${dvar:+${!dvar:-}}
-    if [[ -n $dom ]]; then
-      if [[ " $DOMAINS " == *" $dom "* ]]; then
-        warn "$dvar=$dom 与 DOMAINS 重复，忽略（主域名已可用 $path 访问）"
-      else
-        want+=("$d/conf.d/$name")
-        if obs_domain_server "$dom" "$path" "$name" | write_if_changed "$d/conf.d/$name"; then
-          changed=0
-          tls_on && ! cert_covers "$dom" && warn "$dom 不在证书里，暂时只能 HTTP 访问；执行 make tls 加入证书"
-        fi
-      fi
+  fi
+}
+
+# 有变化返回 0。非 main 的站点各生成 conf.d/site-<域名>.conf
+render_sites() {
+  local d dom s body f changed=1 want=()
+  d=$(nginx_dir)
+  sites_check
+  while read -r dom s; do
+    [[ $s == main ]] && continue
+    body=$(site_body "$s")
+    [[ $body != *"return 503"* ]] || warn "$dom 绑定的 $s 未安装，访问返回 503"
+    f=$d/conf.d/site-$dom.conf
+    want+=("$f")
+    if site_server "$dom" "$body" | write_if_changed "$f"; then
+      changed=0
+      if tls_on && ! cert_covers "$dom"; then warn "$dom 不在证书里，暂时只能 HTTP 访问；加到 DOMAINS 后执行 make tls"; fi
     fi
-  done
-  for f in "$d"/locations/*.conf "$d"/conf.d/obs-*.conf; do
+  done < <(sites)
+  for f in "$d"/conf.d/site-*.conf; do
     [[ -e $f && " ${want[*]} " != *" $f "* && $(head -1 "$f") == "$GEN_HEADER" ]] || continue
     rm -f "$f"; changed=0
-    log "已移除 Nginx 入口 $(basename "$f")"
+    log "已移除站点 $(basename "$f")"
   done
-  if ((changed == 0 && nauth)) && ! tls_on; then
-    warn "未启用 TLS，观测入口的 Basic Auth 密码以明文传输，建议配置 DOMAINS 后执行 make tls"
-  fi
   return $changed
 }
 
 nginx_purge_hint() { echo "$DEPLOY_DIR/nginx（配置、证书）及观测入口账号"; }
 
+# 主站也重渲染：站点增删会改变主站 server_name
 nginx_sync() {
-  if render_locations && comp_running nginx; then
+  local changed=1
+  render_nginx_conf && changed=0
+  render_locations && changed=0
+  render_sites && changed=0
+  if ((changed == 0)) && comp_running nginx; then
     nginx_reload
-    log "Nginx 观测入口已更新"
+    log "Nginx 入口已更新"
   fi
   return 0
 }

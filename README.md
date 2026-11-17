@@ -2,7 +2,7 @@
 
 新机器基础环境一键部署：系统与 Docker（阶段 1）+ 基础服务（阶段 2）+ 可选组件（阶段 3：Redis、Postgres、VictoriaMetrics、VictoriaLogs、OTel Collector、告警、定时备份）。支持 Ubuntu 系列（含 Mint 等衍生版），版本、架构、云厂商自动识别。
 
-> 项目名在 `lib/common.sh` 的 `PROJECT` 定义，状态目录 `/var/lib/hostkit`、systemd 单元 `hostkit-*`、sysctl/sshd 配置文件名、备份目录和备份指标名都由它派生。按旧名 `install-base` 部署过的机器不会自动迁移，脚本会拒绝执行并提示步骤。
+> 项目名在 `lib/common.sh` 的 `PROJECT` 定义，状态目录 `/var/lib/hostkit`、systemd 单元 `hostkit-*`、sysctl/sshd 配置文件名、备份目录和备份指标名都由它派生。
 
 ## 快速开始
 
@@ -18,7 +18,7 @@ make list                          # 步骤列表，及各步骤是否支持卸�
 
 ```bash
 git clone git@kart.github.com:kart-io/hostkit.git && cd hostkit
-cp config.env.example config.env   # 要签证书填 DOMAINS/LE_EMAIL，要告警填 ALERT_FEISHU_*
+cp config.env.example config.env   # 要签证书填 DOMAINS/LE_EMAIL，域名绑定服务填 SITES，要告警填 ALERT_FEISHU_*
 
 make install                       # 1. 基础环境：Docker、Swap、UFW、SSH 加固、网络、Nginx；按输出放行安全组
 make tls                           # 2. HTTPS（填了 DOMAINS 才需要，域名需已解析到本机公网 IP）
@@ -108,7 +108,7 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 credentials.env                  # 所有账号密码（0600），见「账号密码」
 <组件>/docker-compose.yml        # 从 templates/<组件>/ 复制，勿手改
 <组件>/.env                      # 镜像版本、密码等（0600）
-nginx/conf.d/default.conf        # 生成，勿手改；obs-*.conf 为观测入口独立域名的 server，同样生成
+nginx/conf.d/default.conf        # 生成，勿手改（主站）；site-<域名>.conf 为 SITES 里各站点，同样生成
 nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口，web-*.conf 为生成的公开入口（如 demo）
 nginx/certbot/{conf,www,logs}
 redis/data  postgres/data  victoriametrics/data  victorialogs/data
@@ -129,14 +129,39 @@ networks:
 
 新增 location 后执行 `docker compose --project-directory /opt/base/nginx exec nginx nginx -s reload`。
 
-## TLS
+## 域名与 TLS
+
+两个配置分工：
+
+- **`DOMAINS`**：证书域名。`make tls` 把这些域名签进**同一张证书**，第一个作证书名。
+- **`SITES`**：站点绑定，每行「域名 服务」，决定域名打开什么。每个要访问的域名都写一行，主站写 `main`。
 
 ```bash
 # config.env
-DOMAINS="example.com www.example.com"
+DOMAINS="crm.example.com logs.example.com app.example.com"
+SITES="
+crm.example.com      main
+logs.example.com     victorialogs
+app.example.com      myapp:8080
+"
 LE_EMAIL="ops@example.com"
 LE_STAGING=1      # 先用测试环境，不消耗正式限额
 ```
+
+上例中 `crm` 是主站，`logs` 直达 VictoriaLogs，`app` 反代到业务容器，三个域名共用一张证书。
+
+| 服务 | 访问效果 |
+|---|---|
+| `main` | 主站：`/` 为 demo 或 `locations/` 里的业务 location，`/vm/` `/vl/` `/vmalert/` `/am/` 观测入口 |
+| `victoriametrics` `victorialogs` `vmalert` `alertmanager` | 打开域名直接跳到该观测后端，Basic Auth；主站上的对应路径照常可用 |
+| `demo` | 测试页 |
+| `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502 |
+
+- 改 `DOMAINS` 后执行 `make tls`：域名先解析到本机；签发或扩充证书，各站点切到 HTTPS。新增域名会重新签发一次，计入 Let's Encrypt 同域名每 7 天 5 张的限额。
+- 改 `SITES` 后执行 `make nginx`，不会重新签发。
+- 从 `SITES` 删掉的站点自动移除；绑定的组件未安装时访问返回 503，装上后自动生效。
+- 没在 `SITES` 里的域名、直接用 IP 访问，都由主站兜底（Nginx 的 default_server）。
+- `SITES` 里绑定了但不在 `DOMAINS` 的域名只能 HTTP 访问，会有提示。
 
 `sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
 
@@ -155,7 +180,7 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
   - 容器（`docker_stats`）：本机所有容器的 CPU、内存、网络、块 IO、重启次数、运行时长。
   - Redis、Postgres：装了才采，账号从 `credentials.env` 读取，改密码后自动跟上。
   - 证书（`tlscheck`）：启用 TLS 后每小时读一次 Nginx 证书剩余时间。
-  - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。从旧版本升级时，执行 `make victoriametrics` 后新数据改用新名字，旧名字的历史数据仍在。
+  - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。
 - **docker.sock**：采集容器指标要把 `/var/run/docker.sock` 只读挂进 Collector。只读挂载也能调用全部 Docker API，等同宿主机 root。Collector 不发布端口，只在 `base-net` 内收 OTLP。
 - **容器日志**（装了 VL 才启用）：读取 Docker json-file 日志，从启用后的新日志开始。
   - 需要日志驱动为 json-file，`make dockerconf` 已配置。
@@ -163,10 +188,7 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
 - **查询入口**：经 Nginx 访问 `http://<主机>/vm/`（vmui 在 `/vm/vmui/`）、`/vl/`（UI 在 `/vl/select/vmui/`）、`/vmalert/`（规则与告警状态）、`/am/`（Alertmanager，可设静默），都用 Basic Auth 登录。
   - 账号密码见 `/opt/base/credentials.env` 的 `OBS_AUTH_USER` / `OBS_AUTH_PASSWORD`。
   - 未启用 TLS 时密码明文传输，建议先 `make tls`。
-- **独立域名**（可选）：在 `config.env` 设 `VM_DOMAIN` / `VL_DOMAIN` / `VMALERT_DOMAIN` / `AM_DOMAIN`，如 `VL_DOMAIN=logs.example.com`。
-  - 打开 `https://logs.example.com/` 直接跳到 `/vl/`，同样要 Basic Auth；主域名下的 `/vl/` 照常可用。
-  - 域名先解析到本机，再执行 `make tls`：独立域名会和 `DOMAINS` 一起签进同一张证书（需已配 `DOMAINS`）。没进证书前只能 HTTP 访问，会有提示。
-  - 改了这几个配置后执行 `make nginx`（或 `make tls`）生效；删掉配置后对应入口自动移除。
+- **独立域名**：在 `SITES` 里写如 `logs.example.com victorialogs`，打开即直达，见「域名与 TLS」。
 - 卸载 VM 或 VL 时，OTel 导出和 Nginx 入口会自动撤掉。
 
 ## 告警
