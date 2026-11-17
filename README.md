@@ -107,7 +107,7 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 credentials.env                  # 所有账号密码（0600），见「账号密码」
 <组件>/docker-compose.yml        # 从 templates/<组件>/ 复制，勿手改
 <组件>/.env                      # 镜像版本、密码等（0600）
-nginx/conf.d/default.conf        # 生成，勿手改
+nginx/conf.d/default.conf        # 生成，勿手改；obs-*.conf 为观测入口独立域名的 server，同样生成
 nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口，web-*.conf 为生成的公开入口（如 demo）
 nginx/certbot/{conf,www,logs}
 redis/data  postgres/data  victoriametrics/data  victorialogs/data
@@ -162,6 +162,10 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
 - **查询入口**：经 Nginx 访问 `http://<主机>/vm/`（vmui 在 `/vm/vmui/`）、`/vl/`（UI 在 `/vl/select/vmui/`）、`/vmalert/`（规则与告警状态）、`/am/`（Alertmanager，可设静默），都用 Basic Auth 登录。
   - 账号密码见 `/opt/base/credentials.env` 的 `OBS_AUTH_USER` / `OBS_AUTH_PASSWORD`。
   - 未启用 TLS 时密码明文传输，建议先 `make tls`。
+- **独立域名**（可选）：在 `config.env` 设 `VM_DOMAIN` / `VL_DOMAIN` / `VMALERT_DOMAIN` / `AM_DOMAIN`，如 `VL_DOMAIN=logs.example.com`。
+  - 打开 `https://logs.example.com/` 直接跳到 `/vl/`，同样要 Basic Auth；主域名下的 `/vl/` 照常可用。
+  - 域名先解析到本机，再执行 `make tls`：独立域名会和 `DOMAINS` 一起签进同一张证书（需已配 `DOMAINS`）。没进证书前只能 HTTP 访问，会有提示。
+  - 改了这几个配置后执行 `make nginx`（或 `make tls`）生效；删掉配置后对应入口自动移除。
 - 卸载 VM 或 VL 时，OTel 导出和 Nginx 入口会自动撤掉。
 
 ## 告警

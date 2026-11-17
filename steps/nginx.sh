@@ -52,16 +52,54 @@ ensure_obs_auth() {
   log "观测入口账号已更新，见 $(cred_file) 的 OBS_AUTH_USER/OBS_AUTH_PASSWORD"
 }
 
+# 观测入口的独立域名：根路径跳到入口路径，location 复用 locations/ 下生成的同名文件。
+# 证书含该域名时只开 443（80 由默认 server 跳转 HTTPS），否则开 80 并保留 ACME 校验路径，供 make tls 签发
+obs_domain_server() {
+  local dom=$1 path=$2 loc=$3
+  echo "$GEN_HEADER"
+  echo "server {"
+  if tls_on && cert_covers "$dom"; then
+    cat <<EOF
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name $dom;
+    ssl_certificate     /etc/letsencrypt/live/$(cert_name)/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$(cert_name)/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=63072000" always;
+EOF
+  else
+    cat <<EOF
+    listen 80;
+    listen [::]:80;
+    server_name $dom;
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+EOF
+  fi
+  cat <<EOF
+    location = / {
+        return 302 $path;
+    }
+    include /etc/nginx/locations/$loc;
+}
+EOF
+}
+
 # 有变化返回 0。观测入口带 Basic Auth、文件名 obs-<路径>，公开入口文件名 web-<路径>；
+# 观测入口配了独立域名时另生成 conf.d/obs-<路径>.conf。
 # 不再需要的生成文件（看文件头，含旧命名）删除，业务文件不动
 render_locations() {
-  local d line mode n path upstream f auth changed=1 nauth=0 want=()
+  local d line mode n path upstream dvar dom name f auth changed=1 nauth=0 want=()
   d=$(nginx_dir)
   for line in "${OBS_ROUTES[@]/#/obs }" "${WEB_ROUTES[@]/#/web }"; do
-    read -r mode n path upstream <<<"$line"
+    read -r mode n path upstream dvar <<<"$line"
     comp_installed "$n" || continue
-    f=${path//\//}
-    f=$d/locations/$mode-${f:-root}.conf
+    name=${path//\//}
+    name=$mode-${name:-root}.conf
+    f=$d/locations/$name
     want+=("$f")
     auth=""
     if [[ $mode == obs ]]; then
@@ -80,8 +118,20 @@ location $path {$auth
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 }
 EOF
+    dom=${dvar:+${!dvar:-}}
+    if [[ -n $dom ]]; then
+      if [[ " $DOMAINS " == *" $dom "* ]]; then
+        warn "$dvar=$dom 与 DOMAINS 重复，忽略（主域名已可用 $path 访问）"
+      else
+        want+=("$d/conf.d/$name")
+        if obs_domain_server "$dom" "$path" "$name" | write_if_changed "$d/conf.d/$name"; then
+          changed=0
+          tls_on && ! cert_covers "$dom" && warn "$dom 不在证书里，暂时只能 HTTP 访问；执行 make tls 加入证书"
+        fi
+      fi
+    fi
   done
-  for f in "$d"/locations/*.conf; do
+  for f in "$d"/locations/*.conf "$d"/conf.d/obs-*.conf; do
     [[ -e $f && " ${want[*]} " != *" $f "* && $(head -1 "$f") == "$GEN_HEADER" ]] || continue
     rm -f "$f"; changed=0
     log "已移除 Nginx 入口 $(basename "$f")"

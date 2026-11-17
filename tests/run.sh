@@ -31,20 +31,37 @@ log() { :; }
 INSTALLED=""
 comp_installed() { [[ " $INSTALLED " == *" $1 "* ]]; }
 
-echo "== nginx 模板校验（$NGINX_IMAGE，含 /vm/ /vl/ /vmalert/ /am/ 观测入口和 demo 公开入口 /）"
-mkdir -p "$tmp/le/live/example.com" "$DEPLOY_DIR/nginx/locations"
+echo "== nginx 模板校验（$NGINX_IMAGE，含 /vm/ /vl/ /vmalert/ /am/ 观测入口、观测独立域名和 demo 公开入口 /）"
+le=$DEPLOY_DIR/nginx/certbot/conf
+mkdir -p "$le/live/example.com" "$DEPLOY_DIR/nginx/locations"
+# 证书含 logs.example.com、不含 metrics.example.com：VL 走 443，VM 回落到 80
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=example.com \
-  -keyout "$tmp/le/live/example.com/privkey.pem" -out "$tmp/le/live/example.com/fullchain.pem" 2>/dev/null
+  -addext "subjectAltName=DNS:example.com,DNS:www.example.com,DNS:logs.example.com" \
+  -keyout "$le/live/example.com/privkey.pem" -out "$le/live/example.com/fullchain.pem" 2>/dev/null
+DOMAINS="example.com www.example.com" VL_DOMAIN=logs.example.com VM_DOMAIN=metrics.example.com AM_DOMAIN=example.com
+warn() { :; }
 INSTALLED="victoriametrics victorialogs alert demo"
 render_locations 2>/dev/null || { echo "  FAIL 未生成观测入口"; exit 1; }
+check() { "$@" || { echo "  FAIL $*"; exit 1; }; }
+check test "$(tls_domains)" == "example.com www.example.com logs.example.com metrics.example.com"
+check grep -q 'listen 443 ssl' "$DEPLOY_DIR/nginx/conf.d/obs-vl.conf"
+check grep -q 'listen 80' "$DEPLOY_DIR/nginx/conf.d/obs-vm.conf"
+check test ! -e "$DEPLOY_DIR/nginx/conf.d/obs-am.conf"
+echo "  ok   独立域名：证书覆盖的走 443，未覆盖的走 80，与 DOMAINS 重复的忽略"
 for tpl in default-http.conf default-tls.conf; do
   mkdir -p "$tmp/$tpl"
+  cp "$DEPLOY_DIR"/nginx/conf.d/obs-*.conf "$tmp/$tpl/"
   sed -e 's|__SERVER_NAMES__|example.com www.example.com|g' -e 's|__CERT_NAME__|example.com|g' \
     "$ROOT/templates/nginx/$tpl" >"$tmp/$tpl/default.conf"
   docker run --rm -v "$tmp/$tpl:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
-    -v "$tmp/le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
+    -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
   echo "  ok   $tpl"
 done
+VM_DOMAIN=""
+render_locations 2>/dev/null || true
+check test ! -e "$DEPLOY_DIR/nginx/conf.d/obs-vm.conf"
+echo "  ok   去掉域名配置后移除对应 server"
+DOMAINS="" VL_DOMAIN="" AM_DOMAIN=""
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
 TLS=0

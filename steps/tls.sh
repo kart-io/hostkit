@@ -7,11 +7,26 @@ cert_ready() { [[ -n $DOMAINS && -s $(nginx_dir)/certbot/conf/live/$(cert_name)/
 
 tls_on() { cert_ready && ! state_has tls-disabled; }
 
+# 证书域名：DOMAINS 加上观测入口配置的独立域名
+tls_domains() {
+  local line dvar out=$DOMAINS
+  for line in "${OBS_ROUTES[@]}"; do
+    read -r _ _ _ dvar <<<"$line"
+    [[ -n ${!dvar:-} && " $out " != *" ${!dvar} "* ]] && out+=" ${!dvar}"
+  done
+  echo "$out"
+}
+
+cert_covers() {
+  openssl x509 -noout -ext subjectAltName -in "$(nginx_dir)/certbot/conf/live/$(cert_name)/fullchain.pem" 2>/dev/null |
+    tr ',' '\n' | tr -d ' ' | grep -qx "DNS:$1"
+}
+
 # 每个域名都必须解析到本机公网 IP，否则 HTTP-01 必失败，白白消耗 LE 限额
 check_dns() {
   local ip dom resolved bad=0
   ip=$(detect_public_ip) || { warn "无法获取本机公网 IP，跳过 DNS 校验"; return 0; }
-  for dom in $DOMAINS; do
+  for dom in $(tls_domains); do
     resolved=$(getent ahostsv4 "$dom" | awk '{print $1}' | sort -u | xargs)
     if [[ " $resolved " != *" $ip "* ]]; then
       warn "$dom 解析为 [${resolved:-无}]，不是本机公网 IP $ip"
@@ -39,12 +54,12 @@ tls_install() {
 
   local args=(certonly --webroot -w /var/www/certbot --cert-name "$(cert_name)"
               --non-interactive --agree-tos --keep-until-expiring --expand) dom
-  for dom in $DOMAINS; do args+=(-d "$dom"); done
+  for dom in $(tls_domains); do args+=(-d "$dom"); done
   if [[ -n $LE_EMAIL ]]; then args+=(--email "$LE_EMAIL"); else args+=(--register-unsafely-without-email); fi
   [[ $LE_STAGING == 1 ]] && args+=(--staging)
 
   state_del tls-disabled
-  log "申请/检查证书: $DOMAINS"
+  log "申请/检查证书: $(tls_domains)"
   ccompose nginx run --rm --quiet-pull certbot "${args[@]}" || die "证书签发失败，日志见 $(nginx_dir)/certbot/logs/letsencrypt.log"
   nginx_remount_certs
 

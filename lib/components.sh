@@ -12,7 +12,7 @@
 
 # 组件 compose服务名(即 base-net 内主机名) 就绪检查(http 端口 路径 | exec 命令)
 COMPONENTS=()
-# 经 Nginx 暴露、带 Basic Auth 的观测后端：组件 路径 内网上游
+# 经 Nginx 暴露、带 Basic Auth 的观测后端：组件 路径 内网上游 独立域名配置项（config.env 里设了才生效）
 OBS_ROUTES=()
 # 经 Nginx 公开暴露（无鉴权）的应用：组件 路径 内网上游
 WEB_ROUTES=()
