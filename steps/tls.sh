@@ -21,6 +21,14 @@ check_dns() {
   return $bad
 }
 
+# 证书目录若被整个删除重建过，运行中的容器仍挂着已删的旧目录，看不到新证书，需重建容器重新挂载
+nginx_remount_certs() {
+  ccompose nginx exec -T nginx test -s "/etc/letsencrypt/live/$(cert_name)/fullchain.pem" </dev/null && return 0
+  warn "Nginx 容器内看不到证书，重建容器以重新挂载证书目录"
+  ccompose nginx up -d --force-recreate nginx
+  comp_wait nginx
+}
+
 tls_install() {
   [[ -n $DOMAINS ]] || { log "未配置 DOMAINS，跳过 TLS"; return 0; }
   comp_running nginx || die "Nginx 未运行，先执行 make nginx"
@@ -38,6 +46,7 @@ tls_install() {
   state_del tls-disabled
   log "申请/检查证书: $DOMAINS"
   ccompose nginx run --rm --quiet-pull certbot "${args[@]}" || die "证书签发失败，日志见 $(nginx_dir)/certbot/logs/letsencrypt.log"
+  nginx_remount_certs
 
   if render_nginx_conf; then
     nginx_reload
