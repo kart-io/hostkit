@@ -155,7 +155,7 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 | `main` | 主站：`/` 为 demo 或 `locations/` 里的业务 location，`/vm/` `/vl/` `/vmalert/` `/am/` 观测入口 |
 | `victoriametrics` `victorialogs` `vmalert` `alertmanager` | 打开域名直接跳到该观测后端，Basic Auth；主站上的对应路径照常可用 |
 | `demo` | 测试页 |
-| `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502 |
+| `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502；redis、postgres 不允许绑定 |
 
 - 改 `DOMAINS` 后执行 `make tls`：域名先解析到本机；签发或扩充证书，各站点切到 HTTPS。新增域名会重新签发一次，计入 Let's Encrypt 同域名每 7 天 5 张的限额。
 - 改 `SITES` 后执行 `make nginx`，不会重新签发。

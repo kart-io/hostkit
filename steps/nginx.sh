@@ -118,6 +118,8 @@ site_route() {
   return 1
 }
 
+SITES_DENY="redis postgres"
+
 # 配置错误在写任何文件前拦下；不能放在 $() 里调用，die 只会退出子 shell
 sites_check() {
   local dom s seen=" "
@@ -126,6 +128,7 @@ sites_check() {
     [[ $seen != *" $dom "* ]] || die "SITES: $dom 重复"
     seen+="$dom "
     [[ -n $s ]] || die "SITES: $dom 缺少服务，写成「$dom 服务」"
+    [[ " $SITES_DENY " != *" ${s%%:*} "* ]] || die "SITES: $dom 不能绑定 $s，数据库不经 Nginx 对外；需要访问用 SSH 隧道"
     [[ $s == main || $s =~ ^[A-Za-z0-9_.-]+:[0-9]+$ ]] || site_route "$s" >/dev/null ||
       die "SITES: $dom 的服务 $s 不认识；可用 main、$(sites_known)，或 容器名:端口"
   done < <(sites)

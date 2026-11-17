@@ -83,10 +83,11 @@ SITES="logs.example.com victorialogs"
 render_sites || true
 check test ! -e "$c/site-app.example.com.conf"
 echo "  ok   从 SITES 去掉的站点自动移除"
-for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:80" $'a.com main\na.com demo'; do
+for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:80" $'a.com main\na.com demo' \
+  "db.example.com redis:6379" "db.example.com postgres:5432" "db.example.com redis"; do
   if (SITES=$bad; sites_check) 2>/dev/null; then echo "  FAIL 应拒绝 SITES=\"$bad\""; exit 1; fi
 done
-echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名"
+echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名、redis/postgres"
 DOMAINS="" SITES=""
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
