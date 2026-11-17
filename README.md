@@ -268,3 +268,7 @@ compose 组件另外在文件里登记 `COMPONENTS+=(...)`（服务名、就绪�
 ```bash
 make test           # shellcheck + Ubuntu 22.04/24.04/26.04 单测 + nginx/OTel/告警规则/Alertmanager/compose 模板校验，需本机 Docker
 ```
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。
