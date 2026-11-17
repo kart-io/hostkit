@@ -25,7 +25,7 @@ status_components() {
 }
 
 status_tls() {
-  local dom end days off
+  local dom end days off=""
   [[ -n $DOMAINS ]] || { echo "证书: 未配置 DOMAINS"; return; }
   state_has tls-disabled && off="，已停用（make tls 启用）"
   for dom in $DOMAINS; do

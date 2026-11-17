@@ -18,6 +18,8 @@ done
 
 # shellcheck source=../lib/components.sh
 . "$ROOT/lib/components.sh"
+# shellcheck source=../lib/status.sh
+. "$ROOT/lib/status.sh"
 for f in "$ROOT"/steps/*.sh; do
   # shellcheck source=/dev/null
   . "$f"
@@ -83,6 +85,8 @@ check grep -q 'http://myapp:8080' "$c/site-app.example.com.conf"
 check grep -q 'include /etc/nginx/locations/web-root.conf' "$c/site-demo.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-www.example.com.conf"
 check grep -q 'return 503 "alert 未安装' "$c/site-am.example.com.conf"
+check grep -q '^证书: shop.example.com 未签发' <<<"$(status_tls)"
+check grep -q '^证书: logs.example.com 剩余 0 天$' <<<"$(status_tls)"
 echo "  ok   站点：每个域名用自己的证书，没证书的只走 80；main/内置服务/容器名:端口；未装组件返回 503"
 nginx_t
 echo "  ok   nginx -t（各站点 + 证书）"
