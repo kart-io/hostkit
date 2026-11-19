@@ -14,7 +14,7 @@ endif
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help list install uninstall purge stage1 stage2 stage3 test passwords credentials status backup-now \
+.PHONY: help list install uninstall purge stage1 stage2 stage3 test passwords credentials status update backup-now \
 	$(STEP_NAMES) $(addprefix uninstall-,$(STEP_NAMES)) $(addprefix purge-,$(STEP_NAMES))
 
 help:
@@ -37,6 +37,7 @@ help:
 	@echo '  make rotate-password-<组件>     换新密码并立即生效，如 rotate-password-redis'
 	@echo '运维:'
 	@echo '  make status                     组件/证书/备份/磁盘一览'
+	@echo '  make update                     更新 hostkit 代码并热重载组件配置'
 	@echo '  make backup-now                 立即备份一次（make backup 启用每日定时备份）'
 	@echo '  make restore-<组件> [BACKUP=<备份名>]  从备份恢复，默认最新一份，如 restore-postgres'
 	@echo '其他: make list | make test'
@@ -78,6 +79,9 @@ rotate-password-%:
 
 status:
 	@$(RUN) status
+
+update:
+	$(RUN) update
 
 backup-now:
 	$(RUN) backup-run

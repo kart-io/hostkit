@@ -62,6 +62,7 @@ usage() {
 
 运维:
   $0 status                        组件/证书/备份/磁盘一览
+  $0 update                        更新 hostkit 代码并热重载组件配置
   $0 backup-run                    立即备份一次（定时任务也调用它）
   $0 restore <组件> [备份名] [--yes] 从备份恢复，默认用最新一份
 
@@ -93,14 +94,14 @@ main() {
     --names) list_names; return 0 ;;
   esac
   local action=install
-  [[ ${1:-} =~ ^(install|uninstall|purge|passwords|credentials|rotate|status|backup-run|restore)$ ]] && { action=$1; shift; }
+  [[ ${1:-} =~ ^(install|uninstall|purge|passwords|credentials|rotate|status|backup-run|restore|update)$ ]] && { action=$1; shift; }
   local targets=() a
   for a in "$@"; do
     if [[ $a == --yes ]]; then ASSUME_YES=1; else targets+=("$a"); fi
   done
   ((${#targets[@]})) || targets=(all)
 
-  if [[ $action =~ ^(passwords|credentials|rotate|status|backup-run|restore)$ ]]; then
+  if [[ $action =~ ^(passwords|credentials|rotate|status|backup-run|restore|update)$ ]]; then
     require_root
     load_config "$BASE_DIR/config.env"
     case $action in
@@ -108,6 +109,15 @@ main() {
       credentials) cred_show ;;
       status)     status_report ;;
       backup-run) backup_run ;;
+      update)
+        if [[ -d "$BASE_DIR/.git" ]]; then
+          log "拉取最新 hostkit 代码..."
+          git -C "$BASE_DIR" pull --ff-only || warn "git pull 失败，请检查网络或工作区改动"
+        fi
+        load_config "$BASE_DIR/config.env"
+        sync_integrations
+        log "hostkit 更新与组件同步完成"
+        ;;
       rotate)
         ((${#targets[@]} == 1)) && [[ ${targets[0]} != all ]] || { usage; die "rotate 需要指定一个组件"; }
         cred_rotate "${targets[0]}" ;;

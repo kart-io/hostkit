@@ -218,6 +218,13 @@ make victoriametrics otel alert
 - 维护期间不想收告警：在 `/am/` 页面加静默（Silence）。
 - 局限：告警组件自己（vmalert、Alertmanager、转发器）挂了不会有告警，`make status` 能看到。
 
+## 维护与更新
+
+```bash
+make status                  # 查看组件、证书状态与站点一览
+make update                  # 拉取最新代码并自动同步已安装组件（如热重载 Nginx 配置与站点证书）
+```
+
 ## 备份与恢复
 
 ```bash
