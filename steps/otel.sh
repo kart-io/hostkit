@@ -104,7 +104,7 @@ EOF
       for dom in $(certs); do printf '      - file_path: /hostfs%s/fullchain.pem\n' "$(cert_dir "$dom")"; done
     fi
     ((vl)) && cat <<'EOF'
-  filelog/docker:
+  file_log/docker:
     include: [/var/lib/docker/containers/*/*-json.log]
     start_at: end
     include_file_path: true
@@ -131,11 +131,11 @@ exporters:
   nop: {}
 EOF
     ((vm)) && cat <<'EOF'
-  otlphttp/victoriametrics:
+  otlp_http/victoriametrics:
     metrics_endpoint: http://victoriametrics:8428/vm/opentelemetry/v1/metrics
 EOF
     ((vl)) && cat <<'EOF'
-  otlphttp/victorialogs:
+  otlp_http/victorialogs:
     logs_endpoint: http://victorialogs:9428/vl/insert/opentelemetry/v1/logs
 EOF
     cat <<EOF
@@ -146,11 +146,11 @@ service:
     metrics:
       receivers: [$mrx]
       processors: [memory_limiter, resource/host, batch]
-      exporters: [$( ((vm)) && echo otlphttp/victoriametrics || echo nop)]
+      exporters: [$( ((vm)) && echo otlp_http/victoriametrics || echo nop)]
     logs:
-      receivers: [otlp$( ((vl)) && echo ", filelog/docker")]
+      receivers: [otlp$( ((vl)) && echo ", file_log/docker")]
       processors: [memory_limiter, resource/host, batch]
-      exporters: [$( ((vl)) && echo otlphttp/victorialogs || echo nop)]
+      exporters: [$( ((vl)) && echo otlp_http/victorialogs || echo nop)]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
