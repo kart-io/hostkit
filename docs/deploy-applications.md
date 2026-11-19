@@ -168,14 +168,34 @@ HostKit 的 OTel Collector 会自动读取 `/var/lib/docker/containers/*/*-json.
 
 ---
 
-## 五、 业务服务日常运维与一键更新
+## 五、 业务服务日常运维与更新单个服务
 
-为了避免日常发布重复输入多步维护命令，在业务部署目录中提供自动化更新脚本 `/opt/wechat-account/scripts/update.sh`：
+为了避免日常发布重复输入多步维护命令，在业务部署目录中提供自动化更新脚本 `/opt/wechat-account/scripts/update.sh`，支持**单独更新某一个容器服务**或**全量更新**：
+
+```bash
+# 1. 仅更新核心 API / Web 容器 (app)
+sh scripts/update.sh app
+
+# 2. 仅更新协同编辑服务容器 (collab)
+sh scripts/update.sh collab
+
+# 3. 指定新镜像版本号并仅更新 app
+sh scripts/update.sh app v0.1.5
+
+# 4. 全量更新所有应用容器 (app + collab)
+sh scripts/update.sh
+```
+
+### 自动化更新脚本实现 (`/opt/wechat-account/scripts/update.sh`)
 
 ```bash
 #!/bin/sh
-# 在部署服务器上运行：安全拉取/替换应用容器并校验就绪状态
-# 用法：sh scripts/update.sh [新tag，例如 v0.1.5 或留空使用当前.env配置]
+# 在部署服务器上运行：安全更新指定的 Docker 容器服务并校验就绪状态
+# 用法:
+#   sh scripts/update.sh                 # 默认更新所有应用服务 (app + collab)
+#   sh scripts/update.sh app             # 仅更新核心 API / Web 前端 (app)
+#   sh scripts/update.sh collab          # 仅更新协同编辑服务 (collab)
+#   sh scripts/update.sh app v0.1.5      # 指定新镜像 tag 并更新 app
 set -eu
 
 DEPLOY_DIR="/opt/wechat-account"
@@ -190,11 +210,25 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-TAG="${1:-}"
+TARGET="${1:-all}"
+TAG="${2:-}"
+
+# 支持第一个参数传 tag 的兼容逻辑
+if [ "$TARGET" != "app" ] && [ "$TARGET" != "collab" ] && [ "$TARGET" != "all" ]; then
+    TAG="$TARGET"
+    TARGET="all"
+fi
+
 if [ -n "$TAG" ]; then
     echo ">> 更新 .env 镜像标签为: $TAG"
-    sed -i "s|^\(APP_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
-    sed -i "s|^\(COLLAB_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
+    if [ "$TARGET" = "app" ]; then
+        sed -i "s|^\(APP_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
+    elif [ "$TARGET" = "collab" ]; then
+        sed -i "s|^\(COLLAB_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
+    else
+        sed -i "s|^\(APP_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
+        sed -i "s|^\(COLLAB_IMAGE=.*:\).*|\1${TAG}|" "$ENV_FILE"
+    fi
 fi
 
 compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
@@ -202,20 +236,31 @@ compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FIL
 echo ">> 确保数据库健康运行..."
 compose up -d --wait db
 
+SERVICES="app collab"
+if [ "$TARGET" = "app" ]; then
+    SERVICES="app"
+elif [ "$TARGET" = "collab" ]; then
+    SERVICES="collab"
+fi
+
 echo ">> 执行切换与数据卷迁移预检..."
 sh ./scripts/cordis-cutover-preflight.sh "$COMPOSE_FILE" "$ENV_FILE" "$PROJECT"
 sh ./scripts/migrate-app-data-volume.sh "$COMPOSE_FILE" "$ENV_FILE" "$PROJECT"
 
-echo ">> 重新拉起应用服务 (app / collab)..."
-compose up -d --no-build --force-recreate --wait --wait-timeout 300 app collab
+echo ">> 重新拉起指定服务: $SERVICES..."
+compose up -d --no-build --force-recreate --wait --wait-timeout 300 $SERVICES
 
-echo ">> 执行就绪探测..."
-curl -fsS http://localhost:8081/healthz >/dev/null && echo "  - API healthz: OK"
-curl -fsS http://localhost:8081/readyz >/dev/null && echo "  - API readyz: OK"
-curl -fsS http://localhost:8082/readyz >/dev/null && echo "  - Collab readyz: OK"
+echo ">> 执行健康检查探测..."
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "app" ]; then
+    curl -fsS http://localhost:8081/healthz >/dev/null && echo "  - API healthz: OK"
+    curl -fsS http://localhost:8081/readyz >/dev/null && echo "  - API readyz: OK"
+fi
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "collab" ]; then
+    curl -fsS http://localhost:8082/readyz >/dev/null && echo "  - Collab readyz: OK"
+fi
 
-echo ">> 更新完成，容器状态："
-compose ps
+echo ">> 更新完成，当前容器状态："
+compose ps $SERVICES
 ```
 
 日常发版仅需一条命令即可完成热替换与健康验证：
