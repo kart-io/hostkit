@@ -14,6 +14,7 @@ services:
       - ./conf.d:/etc/nginx/conf.d:ro
       - ./locations:/etc/nginx/locations:ro
       - ./auth:/etc/nginx/auth:ro
+      - ./html:/etc/nginx/html:ro
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/letsencrypt:ro
     networks: [base]

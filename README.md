@@ -110,6 +110,7 @@ credentials.env                  # 所有账号密码（0600），见「账号�
 <组件>/.env                      # 镜像版本、密码等（0600）
 nginx/conf.d/default.conf        # 生成，勿手改（主站）；site-<域名>.conf 为 SITES 里各站点，同样生成
 nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口，web-*.conf 为生成的公开入口（如 demo）
+nginx/html/404.html              # 生成，勿手改；没匹配到路由时的 404 页面，改样式改 templates/nginx/404.html
 nginx/certbot/{conf,www,logs}
 redis/data  postgres/data  victoriametrics/data  victorialogs/data
 demo/html  demo/conf.d            # 测试页，从 templates/demo/ 复制

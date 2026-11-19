@@ -40,7 +40,7 @@ check() { "$@" || { echo "  FAIL $*"; exit 1; }; }
 c=$DEPLOY_DIR/nginx/conf.d
 nginx_t() {
   docker run --rm -v "$c:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
-    -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
+    -v "$DEPLOY_DIR/nginx/html:/etc/nginx/html:ro" -v "$le:/etc/letsencrypt:ro" --entrypoint nginx "$NGINX_IMAGE" -t -q
 }
 warn() { :; }
 INSTALLED="victoriametrics victorialogs demo"   # alert 未装：vmalert/alertmanager 站点返回 503
@@ -93,6 +93,14 @@ check grep -qxE '站点: logs.example.com → victorialogs  DNS -  证书 剩余
 echo "  ok   站点：每个域名用自己的证书，没证书的只走 80；main/内置服务/容器名:端口；未装组件返回 503"
 nginx_t
 echo "  ok   nginx -t（各站点 + 证书）"
+n=$(docker run -d -v "$c:/etc/nginx/conf.d:ro" -v "$DEPLOY_DIR/nginx/locations:/etc/nginx/locations:ro" \
+  -v "$DEPLOY_DIR/nginx/html:/etc/nginx/html:ro" -v "$le:/etc/letsencrypt:ro" "$NGINX_IMAGE")
+sleep 1
+out=$(docker exec "$n" curl -s -w '%{http_code}' -H 'Host: metrics.example.com' http://127.0.0.1/nope) || true
+docker rm -f "$n" >/dev/null
+check grep -q '页面不存在' <<<"$out"
+check test "${out: -3}" == 404
+echo "  ok   站点下没匹配到路由返回自定义 404 页面"
 SITES="logs.example.com victorialogs"
 render_sites || true
 check test ! -e "$c/site-app.example.com.conf"
