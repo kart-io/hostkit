@@ -154,6 +154,7 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 | `victoriametrics` `victorialogs` `vmalert` `alertmanager` | 打开域名直接跳到该观测后端，Basic Auth；主站上的对应路径照常可用 |
 | `demo` | 测试页 |
 | `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502；redis、postgres 不允许绑定 |
+| `IP:端口` | 整站公开反代到宿主机或跨网络服务，如 `172.17.1.1:8081`（反代默认支持 WebSocket、SSE 流式输出与长连接） |
 
 - 加站点：先在 DNS 服务商把域名 A 记录指向本机公网 IP，再改 `SITES`。第一次执行 `make tls` 启用 HTTPS，之后改 `SITES` 只需 `make nginx`，新站点自动签证书。
 - 没解析到本机或签发失败的站点先只走 HTTP，并提示原因；修好后再执行 `make tls`（或 `make nginx`）重试。
