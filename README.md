@@ -164,6 +164,15 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 
 `sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
 
+### 业务应用接入与部署
+
+业务应用建议保持独立部署、统一网关与统一可观测性：
+1. **独立编排**：业务项目放置在各自目录（如 `/opt/wechat-account`），自带 Docker Compose 与 `.env`。
+2. **反代与自动 HTTPS**：在 `config.env` 的 `SITES` 增加域名与目标（例如 `crm.example.com 172.17.1.1:8081`），执行 `make nginx` 自动完成证书签发、HTTPS 强制跳转与 WebSocket / SSE 代理支持。
+3. **日志全自动收集**：执行 `make otel` 启动 OTel Collector，所有业务容器的标准输出日志自动被抓取并存入 VictoriaLogs，通过 `https://vlog.example.com` 即可统一检索。
+
+完整端到端部署流程与实战说明，见 **[业务应用部署与接入指南](docs/deploy-applications.md)**。
+
 ## 可观测性
 
 ```bash
