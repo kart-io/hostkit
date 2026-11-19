@@ -106,7 +106,7 @@ EOF
     ((vl)) && cat <<'EOF'
   file_log/docker:
     include: [/var/lib/docker/containers/*/*-json.log]
-    start_at: end
+    start_at: beginning
     include_file_path: true
     operators:
       - type: container
@@ -125,6 +125,48 @@ processors:
       - key: host.name
         value: ${env:HOST_NAME}
         action: upsert
+EOF
+    ((vl)) && cat <<'EOF'
+  transform:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          # 1. Parse JSON if body is a JSON string (wechat-api, wechat-collab)
+          - merge_maps(attributes, ParseJSON(body), "upsert") where IsString(body) and IsMatch(body, "^{")
+          - set(attributes["level"], ToUpperCase(attributes["level"])) where attributes["level"] != nil
+          - set(attributes["service"], attributes["service.name"]) where attributes["service"] == nil and attributes["service.name"] != nil
+          - set(body, attributes["msg"]) where attributes["msg"] != nil
+          - set(body, attributes["message"]) where body == nil and attributes["message"] != nil
+          - set(body, Concat([body, attributes["error"]], " - ")) where attributes["error"] != nil and body != nil
+          - set(body, Concat([body, attributes["error_reason"]], " reason=")) where attributes["error_reason"] != nil and body != nil
+          - set(body, Concat([body, attributes["task_id"]], " task_id=")) where attributes["task_id"] != nil and body != nil
+          - set(attributes["level"], "WARN") where attributes["level"] == "INFO" and attributes["status_code"] != nil and attributes["status_code"] >= 400 and attributes["status_code"] < 500
+          - set(attributes["level"], "WARN") where attributes["level"] == "INFO" and attributes["error"] != nil
+          - set(severity_text, attributes["level"]) where attributes["level"] != nil
+
+          # 2. Parse Nginx access logs
+          - merge_maps(attributes, ExtractPatterns(body, "^(?P<client_ip>[0-9a-fA-F:.]+)\\s+-\\s+(?P<user>\\S+)\\s+\\[(?P<time>[^\\]]+)\\]\\s+\"(?P<method>[A-Z]+)\\s+(?P<route>[^\\s]+)\\s+HTTP/[0-9.]+\"\\s+(?P<status_code>[0-9]{3})\\s+(?P<response_bytes>[0-9]+)"), "upsert") where attributes["service"] == nil and IsString(body) and IsMatch(body, "^[0-9a-fA-F:.]+\\s+-\\s+\\S+\\s+\\[[0-9]{2}/[A-Za-z]{3}/[0-9]{4}:.*\" [0-9]{3}")
+          - set(attributes["service"], "nginx") where attributes["client_ip"] != nil and attributes["service"] == nil
+
+          # 3. Parse Nginx error logs
+          - set(attributes["service"], "nginx") where attributes["service"] == nil and IsString(body) and IsMatch(body, "^[0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \\[")
+          - set(attributes["level"], "ERROR") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[(error|crit|alert|emerg)\\]")
+          - set(attributes["level"], "WARN") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[warn\\]")
+          - set(attributes["level"], "INFO") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[(notice|info)\\]")
+
+          # 4. Set Nginx access log level based on status_code
+          - set(attributes["level"], "ERROR") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil and IsMatch(attributes["status_code"], "^5")
+          - set(attributes["level"], "WARN") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil and IsMatch(attributes["status_code"], "^4")
+          - set(attributes["level"], "INFO") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil
+          - set(severity_text, attributes["level"]) where attributes["service"] == "nginx" and attributes["level"] != nil
+
+          # 5. Generic fallback for plain text logs (PostgreSQL etc.)
+          - set(attributes["level"], "ERROR") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\b(ERROR|FATAL)\\b")
+          - set(attributes["level"], "WARN") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\b(WARN|WARNING)\\b")
+          - set(attributes["level"], "INFO") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\bINFO\\b")
+EOF
+    cat <<'EOF'
   batch: {}
 
 exporters:
@@ -149,7 +191,7 @@ service:
       exporters: [$( ((vm)) && echo otlp_http/victoriametrics || echo nop)]
     logs:
       receivers: [otlp$( ((vl)) && echo ", file_log/docker")]
-      processors: [memory_limiter, resource/host, batch]
+      processors: [memory_limiter, resource/host, $( ((vl)) && echo "transform, ")batch]
       exporters: [$( ((vl)) && echo otlp_http/victorialogs || echo nop)]
     traces:
       receivers: [otlp]

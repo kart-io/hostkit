@@ -63,15 +63,19 @@ render_locations() {
     f=$d/locations/$(route_file "$mode" "$path")
     want+=("$f")
     auth=""
+    no_log=""
     if [[ $mode == obs ]]; then
       ensure_obs_auth && changed=0
       auth=$'\n    auth_basic "'$n$'";\n    auth_basic_user_file /etc/nginx/auth/htpasswd;'
       ((++nauth))
+      if [[ $n == victorialogs ]]; then
+        no_log=$'\n    access_log off;'
+      fi
     fi
     # 用变量 + Docker DNS 运行时解析，后端没起时 nginx 也能正常加载
     write_if_changed "$f" <<EOF && changed=0
 $GEN_HEADER
-location $path {$auth
+location $path {$no_log$auth
     resolver 127.0.0.11 valid=10s;
     set \$upstream http://$upstream;
     proxy_pass \$upstream;
@@ -188,7 +192,13 @@ site_body() {
       printf '    location / {\n        default_type text/plain;\n        return 503 "%s 未安装\\n";\n    }\n' "$n"
       return 0
     fi
-    [[ $path == / ]] || printf '    location = / {\n        return 302 %s;\n    }\n' "$path"
+    if [[ $path != / ]]; then
+      if [[ $n == victorialogs ]]; then
+        printf '    location = / {\n        access_log off;\n        return 302 %s;\n    }\n' "$path"
+      else
+        printf '    location = / {\n        return 302 %s;\n    }\n' "$path"
+      fi
+    fi
     echo "    include /etc/nginx/locations/$(route_file "$mode" "$path");"
   else
     cat <<EOF
