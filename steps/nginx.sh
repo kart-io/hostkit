@@ -17,9 +17,12 @@ nginx_env() {
   echo "CERTBOT_IMAGE=$CERTBOT_IMAGE"
 }
 
-# 兜底的 default_server；内容变化返回 0
+# 兜底的 default_server 和 404 页面；内容变化返回 0
 render_nginx_conf() {
-  write_if_changed "$(nginx_dir)/conf.d/default.conf" <"$BASE_DIR/templates/nginx/default.conf"
+  local changed=1
+  write_if_changed "$(nginx_dir)/html/404.html" <"$BASE_DIR/templates/nginx/404.html" && changed=0
+  write_if_changed "$(nginx_dir)/conf.d/default.conf" <"$BASE_DIR/templates/nginx/default.conf" && changed=0
+  return $changed
 }
 
 nginx_prepare() {
@@ -176,6 +179,11 @@ EOF
     location = /healthz {
         access_log off;
         return 200 "ok\n";
+    }
+    try_files "" =404;
+    location = /.hostkit/404.html {
+        internal;
+        alias /etc/nginx/html/404.html;
     }
 $body
 }
