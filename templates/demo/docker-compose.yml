@@ -5,6 +5,8 @@ services:
   demo:
     image: ${IMAGE}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./conf.d:/etc/nginx/conf.d:ro
       - ./html:/usr/share/nginx/html:ro
