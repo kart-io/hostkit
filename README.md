@@ -164,14 +164,26 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 
 `sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
 
-### 业务应用接入与部署
+### 业务应用接入与部署（如 wechat-account）
 
-业务应用建议保持独立部署、统一网关与统一可观测性：
-1. **独立编排**：业务项目放置在各自目录（如 `/opt/wechat-account`），自带 Docker Compose 与 `.env`。
-2. **反代与自动 HTTPS**：在 `config.env` 的 `SITES` 增加域名与目标（例如 `crm.example.com 172.17.1.1:8081`），执行 `make nginx` 自动完成证书签发、HTTPS 强制跳转与 WebSocket / SSE 代理支持。
-3. **日志全自动收集**：执行 `make otel` 启动 OTel Collector，所有业务容器的标准输出日志自动被抓取并存入 VictoriaLogs，通过 `https://vlog.example.com` 即可统一检索。
+外部业务系统（如电商、CRM、微信平台、AI 服务）建议保持**独立部署、统一网关与统一可观测性**：
+1. **独立编排与目录规范**：业务项目统一部署在独立目录（如 `/opt/wechat-account`），自带 Docker Compose 与独立 `.env`（权限 `0600`），生命周期不侵入 HostKit 底座。
+2. **反向代理与自动 HTTPS**：在 HostKit 的 `config.env` 中为 `SITES` 增加域名与目标映射（例如 `crm.example.com 172.17.1.1:8081`），执行 `make nginx` 即可全自动完成 Let's Encrypt 证书签发、HTTP 301 强制跳转 HTTPS、以及原生的 WebSocket / SSE 流式长连接代理。
+3. **零侵入集中日志收集**：执行 `make otel` 启动 OTel Collector，系统会自动监听 `/var/lib/docker/containers/` 下的所有容器日志，实时持久化到 VictoriaLogs，直接在 `https://vlog.example.com` 集中查询检索。
+4. **单服务定向更新**：业务栈配备标准维护脚本，支持只更新 `app` 核心容器或 `collab` 协同容器，保留数据库持续健康运行。
 
-完整端到端部署流程与实战说明，见 **[业务应用部署与接入指南](docs/deploy-applications.md)**。
+详细的架构契约与端到端实战流程，见 **[外部应用接入与部署规范指南 —— 以 wechat-account 为例](docs/deploy-applications.md)**。
+
+#### 单个 Docker 服务更新命令速查
+
+| 更新需求 | 执行命令 |
+|---|---|
+| **仅更新业务核心后端容器 (app)** | `cd /opt/wechat-account && sh scripts/update.sh app` |
+| **仅更新业务协同编辑容器 (collab)** | `cd /opt/wechat-account && sh scripts/update.sh collab` |
+| **改了业务挂载配置热重启** | `cd /opt/wechat-account && docker compose restart app` |
+| **仅更新 HostKit Nginx 网关** | `cd ~/hostkit && make nginx` |
+| **仅更新 HostKit OTel 采集器** | `cd ~/hostkit && make otel` |
+| **仅更新 HostKit VictoriaLogs 引擎** | `cd ~/hostkit && make victorialogs` |
 
 ## 可观测性
 
