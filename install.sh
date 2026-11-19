@@ -112,7 +112,11 @@ main() {
       update)
         if [[ -d "$BASE_DIR/.git" ]]; then
           log "拉取最新 hostkit 代码..."
-          git -C "$BASE_DIR" pull --ff-only || warn "git pull 失败，请检查网络或工作区改动"
+          if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+            sudo -u "$SUDO_USER" git -C "$BASE_DIR" pull --ff-only || warn "git pull 失败，请检查网络或工作区改动"
+          else
+            git -C "$BASE_DIR" pull --ff-only || warn "git pull 失败，请检查网络或工作区改动"
+          fi
         fi
         load_config "$BASE_DIR/config.env"
         sync_integrations
