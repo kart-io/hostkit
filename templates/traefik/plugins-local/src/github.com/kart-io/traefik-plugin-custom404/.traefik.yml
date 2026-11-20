@@ -1,0 +1,6 @@
+displayName: Custom 404 Page
+type: middleware
+import: github.com/kart-io/traefik-plugin-custom404
+summary: Returns a custom 404 HTML page in-memory
+testData:
+  filePath: "/etc/traefik/html/404.html"

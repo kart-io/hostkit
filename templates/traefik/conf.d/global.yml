@@ -16,3 +16,25 @@ http:
         stsPreload: true
         contentTypeNosniff: true
         customFrameOptionsValue: "SAMEORIGIN"
+
+    custom-404:
+      plugin:
+        custom404:
+          filePath: "/etc/traefik/html/404.html"
+
+  services:
+    dummy-404:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9"
+
+  routers:
+    catchall-404:
+      entryPoints:
+        - "websecure"
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: "dummy-404"
+      middlewares:
+        - "custom-404"
+      tls: {}

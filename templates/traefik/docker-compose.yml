@@ -16,6 +16,8 @@ services:
       - ./conf.d:/etc/traefik/conf.d:ro
       - ./acme:/etc/traefik/acme
       - ./auth:/etc/traefik/auth:ro
+      - ./plugins-local:/plugins-local:ro
+      - ./html:/etc/traefik/html:ro
     environment:
       - TZ=${TZ:-Asia/Shanghai}
     networks: [base]

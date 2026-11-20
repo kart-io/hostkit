@@ -46,7 +46,7 @@ ensure_traefik_obs_auth() {
 }
 
 render_traefik_config() {
-  local changed=1 d email ca_line=""
+  local changed=1 d email ca_line="" plug_dir
   d=$(traefik_dir)
   email=${LE_EMAIL:-admin@example.com}
   [[ ${LE_STAGING:-0} == 1 ]] && ca_line="      caServer: \"https://acme-staging-v02.api.letsencrypt.org/directory\""
@@ -55,6 +55,11 @@ render_traefik_config() {
 global:
   checkNewVersion: false
   sendAnonymousUsage: false
+
+experimental:
+  localPlugins:
+    custom404:
+      moduleName: github.com/kart-io/traefik-plugin-custom404
 
 ping:
   entryPoint: "ping"
@@ -108,13 +113,19 @@ accessLog: {}
 EOF
 
   write_if_changed "$d/conf.d/global.yml" <"$BASE_DIR/templates/traefik/conf.d/global.yml" && changed=0
+  write_if_changed "$d/html/404.html" <"$BASE_DIR/templates/traefik/html/404.html" && changed=0
+
+  plug_dir="$d/plugins-local/src/github.com/kart-io/traefik-plugin-custom404"
+  install -d -m 0755 "$plug_dir"
+  write_if_changed "$plug_dir/.traefik.yml" <"$BASE_DIR/templates/traefik/plugins-local/src/github.com/kart-io/traefik-plugin-custom404/.traefik.yml" && changed=0
+  write_if_changed "$plug_dir/custom404.go" <"$BASE_DIR/templates/traefik/plugins-local/src/github.com/kart-io/traefik-plugin-custom404/custom404.go" && changed=0
 
   return $changed
 }
 
 traefik_prepare() {
   local changed=1
-  install -d -m 0755 "$(traefik_dir)"/{conf.d,acme,auth}
+  install -d -m 0755 "$(traefik_dir)"/{conf.d,acme,auth,html,plugins-local}
   ensure_acme_json
   ensure_traefik_obs_auth && changed=0
   render_traefik_config && changed=0

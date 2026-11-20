@@ -2,7 +2,18 @@ global:
   checkNewVersion: false
   sendAnonymousUsage: false
 
+experimental:
+  localPlugins:
+    custom404:
+      moduleName: github.com/kart-io/traefik-plugin-custom404
+
+ping:
+  entryPoint: "ping"
+
 entryPoints:
+  ping:
+    address: ":8080"
+
   web:
     address: ":80"
     http:
