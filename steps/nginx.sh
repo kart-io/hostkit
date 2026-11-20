@@ -241,8 +241,9 @@ site_body() {
     site_proxy_pass "$s" "/web/"
     site_proxy_pass "$s" "/api/"
     site_proxy_pass "$s" "/assets/"
+    site_proxy_pass "$s" "/uploads/"
     site_proxy_pass "$s" "= /readyz"
-    site_proxy_pass "$s" "~* ^/favicon\.(ico|svg|png)$"
+    site_proxy_pass "$s" "~* \.(png|jpg|jpeg|gif|svg|ico|webp)$"
   else
     site_proxy_pass "$s" "/"
   fi
