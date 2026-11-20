@@ -21,8 +21,14 @@ http:
       errors:
         status:
           - "400-599"
-        service: "error-pages@docker"
+        service: "error-pages-svc"
         query: "/{status}.html"
+
+  services:
+    error-pages-svc:
+      loadBalancer:
+        servers:
+          - url: "http://error-pages:80"
 
   routers:
     catchall-404:
@@ -30,5 +36,5 @@ http:
         - "websecure"
       rule: "PathPrefix(`/`)"
       priority: 1
-      service: "error-pages@docker"
+      service: "error-pages-svc"
       tls: {}

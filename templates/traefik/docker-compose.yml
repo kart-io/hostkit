@@ -37,9 +37,6 @@ services:
       - ./html:/usr/share/nginx/html:ro
       - ./error-pages.conf:/etc/nginx/conf.d/default.conf:ro
     networks: [base]
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.services.error-pages.loadbalancer.server.port=80"
 
 networks:
   base:
