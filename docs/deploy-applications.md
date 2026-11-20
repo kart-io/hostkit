@@ -68,8 +68,8 @@ flowchart TD
     ```yaml
     labels:
       - "prometheus.io/scrape=true"
-      - "prometheus.io/port=8081"        # 可选，默认镜像声明的端口
-      - "prometheus.io/path=/metrics"    # 可选
+      - "prometheus.io/port=8081"        # 推荐显式声明（多端口或精简镜像无 EXPOSE 时可精准匹配）
+      - "prometheus.io/path=/metrics"    # 可选，默认 /metrics
     ```
   - 容器必须接入 `base-net`；在 vmui 里按 `{container="..."}` 或 `{service="..."}` 查询。
 - **健康检查标准**：

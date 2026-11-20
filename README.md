@@ -204,7 +204,7 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
   - 容器（`docker_stats`）：本机所有容器的 CPU、内存、网络、块 IO、重启次数、运行时长。
   - Redis、Postgres：装了才采，账号从 `credentials.env` 读取，改密码后自动跟上。
   - 业务 `/metrics`（`prometheus/docker`）：容器加标签 `prometheus.io/scrape=true` 且接入 `base-net` 即自动抓取，不用改 HostKit 配置。
-    - 可选标签：`prometheus.io/port`（默认用镜像声明的端口）、`prometheus.io/path`（默认 `/metrics`）。
+    - 可选标签：`prometheus.io/port`（推荐显式声明，尤其是多端口或基础镜像未写 EXPOSE 时；默认用镜像声明的端口）、`prometheus.io/path`（默认 `/metrics`）。
     - 指标带 `container`（容器名）和 `service`（Compose 服务名）标签。
   - 证书（`tlscheck`）：配置了 `SITES` 时每小时连一次各站点 443，取线上证书的剩余时间（需要容器能访问本机公网 IP）。
   - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。
