@@ -130,6 +130,7 @@ traefik_prepare() {
   ensure_acme_json
   ensure_traefik_obs_auth && changed=0
   render_traefik_config && changed=0
+  render_traefik_sites && changed=0
   return $changed
 }
 
