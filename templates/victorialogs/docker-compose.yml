@@ -13,9 +13,21 @@ services:
       - ./data:/victoria-logs-data
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.victorialogs.rule=PathPrefix(`/vl`)"
+      # 根路径访问自动重定向到 Web UI /vl/select/vmui/
+      - "traefik.http.middlewares.vl-root-redirect.redirectregex.regex=^https?://([^/]+)/?$$"
+      - "traefik.http.middlewares.vl-root-redirect.redirectregex.replacement=https://$${1}/vl/select/vmui/"
+
+      - "traefik.http.routers.victorialogs-root.rule=Host(`vlog.costalong.cn`) && Path(`/`)"
+      - "traefik.http.routers.victorialogs-root.entrypoints=websecure"
+      - "traefik.http.routers.victorialogs-root.tls=true"
+      - "traefik.http.routers.victorialogs-root.tls.certresolver=le"
+      - "traefik.http.routers.victorialogs-root.middlewares=vl-root-redirect"
+      - "traefik.http.routers.victorialogs-root.service=victorialogs"
+
+      - "traefik.http.routers.victorialogs.rule=Host(`vlog.costalong.cn`) || PathPrefix(`/vl`)"
       - "traefik.http.routers.victorialogs.entrypoints=websecure"
       - "traefik.http.routers.victorialogs.tls=true"
+      - "traefik.http.routers.victorialogs.tls.certresolver=le"
       - "traefik.http.routers.victorialogs.middlewares=auth-obs@file"
       - "traefik.http.services.victorialogs.loadbalancer.server.port=9428"
     networks: [base]
