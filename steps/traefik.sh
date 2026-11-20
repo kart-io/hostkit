@@ -224,7 +224,7 @@ site_router() {
 tls_on() { comp_installed traefik && [[ -n $(sites) ]]; }
 
 # 文件 provider 监听 conf.d，改 SITES 后无需重启
-traefik_sync() { render_traefik_sites; }
+traefik_sync() { render_traefik_sites || true; }
 
 # 证书能重新签发；备份是为了重建时不撞 Let's Encrypt 频率限制
 traefik_backup() {
