@@ -98,7 +98,7 @@ alert_post() {
   if [[ -z $ALERT_FEISHU_WEBHOOK ]]; then
     warn "未配置 ALERT_FEISHU_WEBHOOK，告警只打印到 docker logs base-alert-alert-feishu-1；配置后再执行 make alert"
   fi
-  log "告警: 规则 $DEPLOY_DIR/alert/rules，外部经 Nginx /vmalert/（规则状态）、/am/（Alertmanager）"
+  log "告警: 规则 $DEPLOY_DIR/alert/rules，外部经 Traefik /vmalert/（规则状态）、/am/（Alertmanager）"
 }
 
 alert_sync() {

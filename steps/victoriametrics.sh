@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# VictoriaMetrics 指标存储；装后 OTel 自动导出指标、Nginx 自动出现 /vm/
+# VictoriaMetrics 指标存储；装后 OTel 自动导出指标、Traefik 自动出现 /vm/
 
 COMPONENTS+=("victoriametrics victoriametrics http 8428 /vm/health")
 SITE_SERVICES+=("victoriametrics victoriametrics /vm/")
@@ -10,7 +10,7 @@ victoriametrics_purge()     { comp_purge victoriametrics; }
 
 victoriametrics_env() { echo "IMAGE=$VM_IMAGE"; echo "RETENTION=$VM_RETENTION"; }
 
-victoriametrics_post() { log "VictoriaMetrics: 内网 http://victoriametrics:8428/vm/，外部经 Nginx /vm/"; }
+victoriametrics_post() { log "VictoriaMetrics: 内网 http://victoriametrics:8428/vm/，外部经 Traefik /vm/"; }
 
 victoriametrics_backup() {
   local ip snap rc
