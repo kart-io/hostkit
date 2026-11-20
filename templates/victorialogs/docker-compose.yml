@@ -23,8 +23,10 @@ services:
       - "traefik.http.routers.victorialogs-root.tls.certresolver=le"
       - "traefik.http.routers.victorialogs-root.middlewares=vl-root-redirect"
       - "traefik.http.routers.victorialogs-root.service=victorialogs"
+      - "traefik.http.routers.victorialogs-root.priority=100"
 
-      - "traefik.http.routers.victorialogs.rule=Host(`vlog.costalong.cn`) || PathPrefix(`/vl`)"
+      # /vl/ 路径由 victorialogs 响应，并套上 BasicAuth
+      - "traefik.http.routers.victorialogs.rule=Host(`vlog.costalong.cn`) && PathPrefix(`/vl`)"
       - "traefik.http.routers.victorialogs.entrypoints=websecure"
       - "traefik.http.routers.victorialogs.tls=true"
       - "traefik.http.routers.victorialogs.tls.certresolver=le"
