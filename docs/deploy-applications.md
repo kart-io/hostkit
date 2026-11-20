@@ -63,6 +63,15 @@ flowchart TD
   - 外部应用无需集成专门的日志 SDK 或 Daemon，只需按标准输出到 `stdout` / `stderr`（Docker json-file 驱动）；
   - 推荐采用 JSON 格式输出，包含 `service`、`level`、`msg`、`request_id` 字段；
   - HostKit 执行 `make otel` 启动收集器后，会自动监听本机所有容器日志并实时导入 VictoriaLogs。
+- **指标标准**：
+  - 应用暴露 Prometheus 格式的 `/metrics`，Compose 里给服务加标签即可被自动抓取进 VictoriaMetrics：
+    ```yaml
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8081"        # 可选，默认镜像声明的端口
+      - "prometheus.io/path=/metrics"    # 可选
+    ```
+  - 容器必须接入 `base-net`；在 vmui 里按 `{container="..."}` 或 `{service="..."}` 查询。
 - **健康检查标准**：
   - 应用建议暴露 `/healthz`（存活探测，返回 200 OK）与 `/readyz`（就绪探测，依赖的 DB、缓存就绪后返回 200 OK）。
 

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# OTel Collector：接收本机容器 OTLP，采集主机/容器/Redis/Postgres/证书指标与容器日志；按已装组件生成配置
+# OTel Collector：接收本机容器 OTLP，采集主机/容器/Redis/Postgres/证书/业务 /metrics 指标与容器日志；按已装组件生成配置
 
 COMPONENTS+=("otel otel-collector http 13133 /")
 
@@ -38,7 +38,7 @@ render_otel_config() {
   ((vm)) && comp_installed redis && redis=1
   ((vm)) && comp_installed postgres && pg=1
   ((vm)) && tls_on && tls=1
-  ((vm)) && mrx+=", hostmetrics, docker_stats"
+  ((vm)) && mrx+=", hostmetrics, docker_stats, prometheus/docker"
   ((redis)) && mrx+=", redis"
   ((pg)) && mrx+=", postgresql"
   ((tls)) && mrx+=", tlscheck"
@@ -81,6 +81,36 @@ EOF
     metrics:
       container.restarts: {enabled: true}
       container.uptime: {enabled: true}
+EOF
+    # 业务容器的 /metrics：带 prometheus.io/scrape=true 标签且接入网络的容器自动发现；
+    # 可选标签 prometheus.io/port（默认容器声明的端口）、prometheus.io/path（默认 /metrics）
+    ((vm)) && cat <<EOF
+  prometheus/docker:
+    config:
+      scrape_configs:
+        - job_name: docker
+          scrape_interval: 30s
+          docker_sd_configs:
+            - host: unix:///var/run/docker.sock
+              filters:
+                - name: label
+                  values: [prometheus.io/scrape=true]
+          relabel_configs:
+            - source_labels: [__meta_docker_network_name]
+              regex: $NETWORK_NAME
+              action: keep
+            - source_labels: [__meta_docker_network_ip, __meta_docker_container_label_prometheus_io_port]
+              regex: (.+);(\d+)
+              replacement: \$\$1:\$\$2
+              target_label: __address__
+            - source_labels: [__meta_docker_container_label_prometheus_io_path]
+              regex: (.+)
+              target_label: __metrics_path__
+            - source_labels: [__meta_docker_container_name]
+              regex: /(.*)
+              target_label: container
+            - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+              target_label: service
 EOF
     ((redis)) && cat <<'EOF'
   redis:

@@ -203,6 +203,9 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
   - 主机：cpu、load、memory、paging、disk、filesystem。不采集网络指标：Collector 在容器网络命名空间里，采到的不是宿主机网卡。
   - 容器（`docker_stats`）：本机所有容器的 CPU、内存、网络、块 IO、重启次数、运行时长。
   - Redis、Postgres：装了才采，账号从 `credentials.env` 读取，改密码后自动跟上。
+  - 业务 `/metrics`（`prometheus/docker`）：容器加标签 `prometheus.io/scrape=true` 且接入 `base-net` 即自动抓取，不用改 HostKit 配置。
+    - 可选标签：`prometheus.io/port`（默认用镜像声明的端口）、`prometheus.io/path`（默认 `/metrics`）。
+    - 指标带 `container`（容器名）和 `service`（Compose 服务名）标签。
   - 证书（`tlscheck`）：配置了 `SITES` 时每小时连一次各站点 443，取线上证书的剩余时间（需要容器能访问本机公网 IP）。
   - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。
 - **docker.sock**：采集容器指标要把 `/var/run/docker.sock` 只读挂进 Collector。只读挂载也能调用全部 Docker API，等同宿主机 root。Collector 不发布端口，只在 `base-net` 内收 OTLP。

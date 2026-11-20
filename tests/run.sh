@@ -143,6 +143,33 @@ for combo in "|" "victoriametrics|" "victorialogs|" "victoriametrics victorialog
   echo "  ok   已装=[$INSTALLED$([[ $TLS == 1 ]] && echo " tls")] 指标: $(grep -oE 'receivers: \[[^]]+\]' "$DEPLOY_DIR/otel/config.yaml" | head -1)"
 done
 
+echo "== 业务容器 /metrics 自动发现（真实 collector 写入 VictoriaMetrics）"
+net=hostkit-test-net
+prom_cleanup() { docker rm -f hostkit-test-vm t-app t-def t-nolabel t-offnet hostkit-test-otel >/dev/null 2>&1 || true; docker network rm $net >/dev/null 2>&1 || true; }
+prom_cleanup
+INSTALLED="victoriametrics"; TLS=0
+NETWORK_NAME=$net render_otel_config || true
+# 只验证 prometheus/docker；docker_stats 依赖本机 Docker API 版本，这里去掉
+sed -e 's/, docker_stats, /, /' -e 's#http://victoriametrics:8428#http://hostkit-test-vm:8428#' "$DEPLOY_DIR/otel/config.yaml" >"$tmp/otel-prom.yaml"
+docker network create $net >/dev/null
+docker run -d --name hostkit-test-vm --network $net "$VM_IMAGE" -http.pathPrefix=/vm -opentelemetry.usePrometheusNaming >/dev/null
+docker run -d --name t-app --network $net -l prometheus.io/scrape=true -l prometheus.io/port=8428 -l com.docker.compose.service=myapp "$VM_IMAGE" >/dev/null
+docker run -d --name t-def --network $net -l prometheus.io/scrape=true "$VM_IMAGE" >/dev/null
+docker run -d --name t-nolabel --network $net "$VM_IMAGE" >/dev/null
+docker run -d --name t-offnet -l prometheus.io/scrape=true -l prometheus.io/port=8428 "$VM_IMAGE" >/dev/null
+docker run -d --name hostkit-test-otel --network $net --user 0:0 -e HOST_NAME=h -v /:/hostfs:ro -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v "$tmp/otel-prom.yaml:/etc/otelcol-contrib/config.yaml:ro" "$OTEL_IMAGE" >/dev/null
+ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$net\").IPAddress}}" hostkit-test-vm)
+scraped() {
+  curl -s "http://$ip:8428/vm/api/v1/query" --data-urlencode 'query=count by (container, service) (vm_app_version)' \
+    | python3 -c 'import json,sys; print(" ".join(sorted("%s/%s=%s" % (r["metric"].get("container"), r["metric"].get("service", "-"), r["value"][1]) for r in json.load(sys.stdin)["data"]["result"])))'
+}
+for _ in {1..60}; do [[ $(scraped 2>/dev/null) == "t-app/myapp=1 t-def/-=1" ]] && break; sleep 2; done
+got=$(scraped 2>/dev/null || true)
+prom_cleanup
+check test "$got" == "t-app/myapp=1 t-def/-=1"
+echo "  ok   带 prometheus.io/scrape 标签且在网络内的容器被抓取（指定端口/默认端口各一次），无标签或不在网络内的忽略"
+
 echo "== 告警规则与 Alertmanager 配置校验（$VMALERT_IMAGE / $ALERTMANAGER_IMAGE）"
 INSTALLED="redis victoriametrics otel alert"
 state_has() { :; }
