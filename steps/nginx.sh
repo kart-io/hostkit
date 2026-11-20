@@ -176,6 +176,7 @@ server {
 EOF
   fi
   cat <<EOF
+    error_page 404 /.hostkit/404.html;
     location = /healthz {
         access_log off;
         return 200 "ok\n";
@@ -190,27 +191,11 @@ $body
 EOF
 }
 
-# main：主站全部入口；内置服务：根路径跳到入口路径，location 复用 locations/ 下生成的文件，组件未装时返回 503；容器名:端口：整站公开反代
-site_body() {
-  local s=$1 mode n path
-  if [[ $s == main ]]; then
-    echo "    include /etc/nginx/locations/*.conf;"
-  elif read -r mode n path < <(site_route "$s"); then
-    if ! comp_installed "$n"; then
-      printf '    location / {\n        default_type text/plain;\n        return 503 "%s 未安装\\n";\n    }\n' "$n"
-      return 0
-    fi
-    if [[ $path != / ]]; then
-      if [[ $n == victorialogs ]]; then
-        printf '    location = / {\n        access_log off;\n        return 302 %s;\n    }\n' "$path"
-      else
-        printf '    location = / {\n        return 302 %s;\n    }\n' "$path"
-      fi
-    fi
-    echo "    include /etc/nginx/locations/$(route_file "$mode" "$path");"
-  else
-    cat <<EOF
-    location / {
+# 反代单个 location 片段
+site_proxy_pass() {
+  local s=$1 path=${2:-/}
+  cat <<EOF
+    location $path {
         resolver 127.0.0.11 valid=10s;
         set \$upstream http://$s;
         proxy_pass \$upstream;
@@ -227,6 +212,39 @@ site_body() {
         proxy_send_timeout 3600s;
     }
 EOF
+}
+
+# main：主站全部入口；内置服务：根路径跳到入口路径，location 复用 locations/ 下生成的文件，组件未装时返回 503；容器名:端口：整站公开反代
+site_body() {
+  local dom=$1 s=$2 mode n path
+  if [[ $s == main ]]; then
+    echo "    include /etc/nginx/locations/*.conf;"
+  elif read -r mode n path < <(site_route "$s"); then
+    if ! comp_installed "$n"; then
+      printf '    location / {\n        default_type text/plain;\n        return 503 "%s 未安装\\n";\n    }\n' "$n"
+      return 0
+    fi
+    if [[ $path != / ]]; then
+      if [[ $n == victorialogs ]]; then
+        printf '    location = / {\n        access_log off;\n        return 302 %s;\n    }\n' "$path"
+      else
+        printf '    location = / {\n        return 302 %s;\n    }\n' "$path"
+      fi
+    fi
+    echo "    include /etc/nginx/locations/$(route_file "$mode" "$path");"
+  elif [[ -f "$(nginx_dir)/locations/$dom.conf" ]]; then
+    echo "    include /etc/nginx/locations/$dom.conf;"
+  elif [[ -d "$(nginx_dir)/locations/$dom" && $(ls -A "$(nginx_dir)/locations/$dom" 2>/dev/null) ]]; then
+    echo "    include /etc/nginx/locations/$dom/*.conf;"
+  elif [[ $s == wechat-account* || $dom == crm.* ]]; then
+    site_proxy_pass "$s" "= /"
+    site_proxy_pass "$s" "/web/"
+    site_proxy_pass "$s" "/api/"
+    site_proxy_pass "$s" "/assets/"
+    site_proxy_pass "$s" "= /readyz"
+    site_proxy_pass "$s" "~* ^/favicon\.(ico|svg|png)$"
+  else
+    site_proxy_pass "$s" "/"
   fi
 }
 
@@ -236,7 +254,7 @@ render_sites() {
   d=$(nginx_dir)
   sites_check
   while read -r dom s; do
-    body=$(site_body "$s")
+    body=$(site_body "$dom" "$s")
     [[ $body != *"return 503"* ]] || warn "$dom 绑定的 $s 未安装，访问返回 503"
     f=$d/conf.d/site-$dom.conf
     want+=("$f")
