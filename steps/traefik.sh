@@ -67,6 +67,8 @@ ping:
 entryPoints:
   ping:
     address: ":8080"
+    http:
+      aliasHeadersStrategy: delete
 
   web:
     address: ":80"
