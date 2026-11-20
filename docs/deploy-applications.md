@@ -10,7 +10,7 @@
 
 在 HostKit 架构中，服务被清晰划分为两类：
 
-1. **基础环境组件（HostKit 内置）**：通过 `make <组件>` 安装在 `/opt/base/`（如 Nginx、OTel Collector、VictoriaLogs、VictoriaMetrics、Redis、PostgreSQL、Alertmanager 等）。
+1. **基础环境组件（HostKit 内置）**：通过 `make <组件>` 安装在 `/opt/base/`（如 Traefik、OTel Collector、VictoriaLogs、VictoriaMetrics、Redis、PostgreSQL、Alertmanager 等）。
 2. **业务应用栈（外部独立应用）**：业务代码（如电商系统、CRM、微信运营平台、AI 服务等）**不侵入 HostKit 核心仓库**，而是作为独立 Compose 栈部署在 `/opt/<app-name>`。
 
 ### 核心收益
@@ -25,7 +25,7 @@
 ```mermaid
 flowchart TD
     subgraph HostKit 统一基础设施底座 [/opt/base]
-        Nginx["Nginx 网关 (80/443)<br/>SSL 自动续期 / HTTP2 / WebSocket / SSE"]
+        Traefik["Traefik 网关 (80/443)<br/>ACME 自动续期 / HTTP2 / WebSocket / SSE"]
         OTel["OTel Collector (采集器)<br/>filelog/docker 实时抓取"]
         VL["VictoriaLogs (日志检索)<br/>vlog.costalong.cn"]
         VM["VictoriaMetrics (指标监控)<br/>CPU / 内存 / 重启次数"]
@@ -37,8 +37,8 @@ flowchart TD
         DB[("PostgreSQL 16 + pgvector (:5432)")]
     end
 
-    Client["公网客户端 (浏览器)"] -->|"HTTPS / WSS"| Nginx
-    Nginx -->|"反向代理 172.17.1.1:8081"| App
+    Client["公网客户端 (浏览器)"] -->|"HTTPS / WSS"| Traefik
+    Traefik -->|"反向代理 172.17.1.1:8081"| App
     App -.->|"读写与向量检索"| DB
     Collab -.->|"内部鉴权通信"| App
 
@@ -51,7 +51,7 @@ flowchart TD
 
 ### 1. 流量与网关契约（Traffic Ingress）
 - **端口映射**：外部应用将对外 HTTP 服务映射至宿主机指定端口（例如 `8081:8081`）。
-- **反代目标**：HostKit Nginx 位于 `base-net` 桥接网络中，通过默认网关 `172.17.1.1:端口` 访问业务容器（网关 IP 随时可通过 `docker network inspect base-net` 验证）。
+- **反代目标**：HostKit Traefik 位于 `base-net` 桥接网络中，通过默认网关 `172.17.1.1:端口` 访问业务容器（网关 IP 随时可通过 `docker network inspect base-net` 验证）。
 - **自动获得的网关特性**：
   - 自动向 Let's Encrypt 申领单域名证书，并在临期时由 systemd timer 自动续期；
   - HTTP 80 访问全自动 301 强制跳转至 HTTPS 443；
@@ -137,9 +137,9 @@ docker compose -p wechat-account -f docker/docker-compose.yml --env-file .env ps
 3. 在 `~/hostkit` 执行生效命令：
    ```bash
    cd ~/hostkit
-   make nginx
+   make traefik
    ```
-   HostKit 会自动向 Let's Encrypt 签发 SSL 证书、自动配置 HTTP 跳转 HTTPS 及 WebSocket 反代，并平滑热重载 Nginx。
+   HostKit 会自动向 Let's Encrypt 签发 SSL 证书、自动配置 HTTP 跳转 HTTPS 及 WebSocket 反代，Traefik 监听配置目录，无需重启。
 4. 验证公网连通性：
    ```bash
    curl -sI https://crm.costalong.cn/       # 返回 HTTP/2 200 OK
@@ -206,7 +206,7 @@ HostKit 的基础设施容器相互解耦，进入 `~/hostkit` 目录执行 `mak
 
 | 目标服务 | 执行命令 | 说明 |
 |---|---|---|
-| **Nginx 网关** | `make nginx` | 仅重新渲染 Nginx 站点配置、签发新证书并热重载 |
+| **Traefik 网关** | `make traefik` | 按 SITES 重新生成站点路由并自动签发新证书 |
 | **OTel Collector** | `make otel` | 仅重新拉取/应用采集配置（`config.yaml`）并重启收集器 |
 | **VictoriaLogs** | `make victorialogs` | 仅更新 VictoriaLogs 引擎，已有日志卷数据完全保留 |
 | **VictoriaMetrics** | `make victoriametrics` | 仅更新 VictoriaMetrics 指标引擎 |

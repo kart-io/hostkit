@@ -93,7 +93,7 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 
 - **安全组**：脚本不持有云凭证，只打印清单，需在控制台放行。
 - **改 SSH 端口**：设 `SSH_PORT=2222` 后会同时监听 22 和 2222。先在安全组放行 2222，用新端口登录确认，再设 `SSH_CLOSE_OLD_PORT=1` 跑 `sudo ./install.sh ssh`，此时会关闭 22，并从 UFW 中删掉 22 的放行规则。
-- **Docker 绕过 UFW**：`ports:` 发布的端口不受 UFW 限制。只有 Nginx 发布 80/443，阶段 3 组件都不发布端口，只在 `base-net` 内可达。
+- **Docker 绕过 UFW**：`ports:` 发布的端口不受 UFW 限制。只有 Traefik 发布 80/443，阶段 3 组件都不发布端口，只在 `base-net` 内可达。
 - **地址池**：只在 `daemon.json` 里还没有 `default-address-pools` 时才写入，已有配置不动。VPC 网段不在本机路由表里时，要填到 `AVOID_CIDRS`。
 - **UFW 规则只增不减**：从 `EXTRA_TCP_PORTS` 里去掉的端口，需要手工 `ufw delete allow <port>/tcp`。
 
@@ -105,10 +105,12 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 credentials.env                  # 所有账号密码（0600），见「账号密码」
 <组件>/docker-compose.yml        # 从 templates/<组件>/ 复制，勿手改
 <组件>/.env                      # 镜像版本、密码等（0600）
-nginx/conf.d/default.conf        # 生成，勿手改（主站）；site-<域名>.conf 为 SITES 里各站点，同样生成
-nginx/locations/*.conf           # 业务 location 放这里；obs-*.conf 为生成的观测入口，web-*.conf 为生成的公开入口（如 demo）
-nginx/html/404.html              # 生成，勿手改；没匹配到路由时的 404 页面，改样式改 templates/nginx/404.html
-nginx/certbot/{conf,www,logs}
+traefik/traefik.yml              # 生成，勿手改（入口、ACME、provider）
+traefik/conf.d/global.yml        # 中间件（Basic Auth、404）与兜底路由，从 templates/traefik/ 复制
+traefik/conf.d/sites.yml         # 按 SITES 生成，勿手改；Traefik 监听该目录，改动立即生效
+traefik/html/404.html            # 没匹配到路由时的 404 页面，改样式改 templates/traefik/html/404.html
+traefik/acme/acme.json           # Let's Encrypt 账号与证书（0600）
+traefik/auth/htpasswd            # 观测入口 Basic Auth
 redis/data  postgres/data  victoriametrics/data  victorialogs/data
 demo/html  demo/conf.d            # 测试页，从 templates/demo/ 复制
 otel/config.yaml                 # 按已装组件生成，勿手改
@@ -116,7 +118,7 @@ alert/rules/*.yml                # 按已装组件生成，勿手改
 alert/alertmanager.yml  alert/feishu.py  alert/am-data
 ```
 
-业务容器加入 `base-net` 即可被 Nginx 反代，并访问 `redis:6379`、`postgres:5432`、`otel-collector:4317/4318`：
+业务容器加入 `base-net` 即可被 Traefik 反代，并访问 `redis:6379`、`postgres:5432`、`otel-collector:4317/4318`：
 
 ```yaml
 networks:
@@ -125,13 +127,13 @@ networks:
     external: true
 ```
 
-新增 location 后执行 `docker compose --project-directory /opt/base/nginx exec nginx nginx -s reload`。
+业务容器也可以自带 Traefik 标签（`traefik.enable=true` 等）自行声明路由，写法参考 `templates/victoriametrics/docker-compose.yml`。
 
 ## 域名与 TLS
 
 只有一个配置 **`SITES`**：每行「域名 服务」，决定域名打开什么。每个要访问的域名都写一行，主站写 `main`。
 
-HTTPS 证书也按 `SITES` 来：每个域名单独一张证书（证书名即域名），一个域名签发或续期失败不影响其他域名。
+HTTPS 证书也按 `SITES` 来：Traefik 按每个站点的 `Host` 规则自动向 Let's Encrypt 签发并续期（HTTP-01），一个域名失败不影响其他域名。HTTP 一律 301 跳 HTTPS。
 
 ```bash
 # config.env
@@ -148,25 +150,26 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 
 | 服务 | 访问效果 |
 |---|---|
-| `main` | 主站：`/` 为 demo 或 `locations/` 里的业务 location，`/vm/` `/vl/` `/vmalert/` `/am/` 观测入口 |
-| `victoriametrics` `victorialogs` `vmalert` `alertmanager` | 打开域名直接跳到该观测后端，Basic Auth；主站上的对应路径照常可用 |
+| `main` | 主站：`/vm/` `/vl/` `/vmalert/` `/am/` 观测入口，装了 demo 时 `/` 为 demo，其余路径返回 404 页面 |
+| `victoriametrics` `victorialogs` `vmalert` `alertmanager` | 打开域名根路径跳到该观测后端（如 victorialogs 跳到 `/vl/select/vmui/`），Basic Auth；其余未匹配路径返回 404 |
 | `demo` | 测试页 |
 | `容器名:端口` | 整站公开反代到 `base-net` 里的容器，如 `myapp:8080`；容器没起时返回 502；redis、postgres 不允许绑定 |
 | `IP:端口` | 整站公开反代到宿主机或跨网络服务，如 `172.17.1.1:8081`（反代默认支持 WebSocket、SSE 流式输出与长连接） |
 
-- 加站点：先在 DNS 服务商把域名 A 记录指向本机公网 IP，再改 `SITES`。第一次执行 `make tls` 启用 HTTPS，之后改 `SITES` 只需 `make nginx`，新站点自动签证书。
-- 没解析到本机或签发失败的站点先只走 HTTP，并提示原因；修好后再执行 `make tls`（或 `make nginx`）重试。
-- `make status` 逐个列出站点：服务、DNS 是否指向本机、证书剩余天数、实际访问地址，访问不了时先看这里。
-- 从 `SITES` 删掉的站点自动移除，证书不再使用（文件留在磁盘上，`make purge-tls` 才删除）；绑定的组件未安装时访问返回 503，装上后自动生效。
-- 没在 `SITES` 里的域名、直接用 IP 访问：HTTP 由主站兜底（Nginx 的 default_server）；HTTPS 直接拒绝握手，不拿别的域名的证书应付。
+- 加站点：先在 DNS 服务商把域名 A 记录指向本机公网 IP，再改 `SITES`，执行 `make traefik`（或 `make update`）。新站点立即生效并自动签证书，无需重启。
+- 签发失败（多半是 DNS 没指向本机或 80 端口不通）时 Traefik 先用自签的默认证书，原因见 `docker compose --project-directory /opt/base/traefik logs traefik`。
+- `make status` 逐个列出站点：服务、证书是否已签发、访问地址。
+- 从 `SITES` 删掉的站点自动移除；绑定的组件未安装时访问返回 404，装上后自动生效。
+- 没在 `SITES` 里的域名、直接用 IP 访问：组件路径照常可用，其余返回 404 页面。
+- 路由优先级（大者先匹配）：`容器名:端口` 站点和根路径跳转 1000 > 组件路径（`/vm` 等）> 内置服务站点 4 > demo 3 > `main` 2 > 兜底 404 1。
 
-`sudo ./install.sh tls` 调通后，把 `LE_STAGING` 改为 0，执行 `make purge-tls tls` 重新签发。查看续期定时器：`systemctl list-timers hostkit-certrenew.timer`。
+`LE_STAGING=1` 调通后改为 0，清空 `/opt/base/traefik/acme/acme.json`（保持 0600）再执行 `make traefik` 重新签发。
 
 ### 业务应用接入与部署（如 wechat-account）
 
 外部业务系统（如电商、CRM、微信平台、AI 服务）建议保持**独立部署、统一网关与统一可观测性**：
 1. **独立编排与目录规范**：业务项目统一部署在独立目录（如 `/opt/wechat-account`），自带 Docker Compose 与独立 `.env`（权限 `0600`），生命周期不侵入 HostKit 底座。
-2. **反向代理与自动 HTTPS**：在 HostKit 的 `config.env` 中为 `SITES` 增加域名与目标映射（例如 `crm.example.com 172.17.1.1:8081`），执行 `make nginx` 即可全自动完成 Let's Encrypt 证书签发、HTTP 301 强制跳转 HTTPS、以及原生的 WebSocket / SSE 流式长连接代理。
+2. **反向代理与自动 HTTPS**：在 HostKit 的 `config.env` 中为 `SITES` 增加域名与目标映射（例如 `crm.example.com 172.17.1.1:8081`），执行 `make traefik` 即可全自动完成 Let's Encrypt 证书签发、HTTP 301 强制跳转 HTTPS、以及原生的 WebSocket / SSE 流式长连接代理。
 3. **零侵入集中日志收集**：执行 `make otel` 启动 OTel Collector，系统会自动监听 `/var/lib/docker/containers/` 下的所有容器日志，实时持久化到 VictoriaLogs，直接在 `https://vlog.example.com` 集中查询检索。
 4. **单服务定向更新**：业务栈配备标准维护脚本，支持只更新 `app` 核心容器或 `collab` 协同容器，保留数据库持续健康运行。
 
@@ -179,7 +182,7 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 | **仅更新业务核心后端容器 (app)** | `cd /opt/wechat-account && sh scripts/update.sh app` |
 | **仅更新业务协同编辑容器 (collab)** | `cd /opt/wechat-account && sh scripts/update.sh collab` |
 | **改了业务挂载配置热重启** | `cd /opt/wechat-account && docker compose restart app` |
-| **仅更新 HostKit Nginx 网关** | `cd ~/hostkit && make nginx` |
+| **仅更新 HostKit Traefik 网关** | `cd ~/hostkit && make traefik` |
 | **仅更新 HostKit OTel 采集器** | `cd ~/hostkit && make otel` |
 | **仅更新 HostKit VictoriaLogs 引擎** | `cd ~/hostkit && make victorialogs` |
 
@@ -197,17 +200,16 @@ make victoriametrics victorialogs otel     # 顺序不限，后装的会自动�
   - 主机：cpu、load、memory、paging、disk、filesystem。不采集网络指标：Collector 在容器网络命名空间里，采到的不是宿主机网卡。
   - 容器（`docker_stats`）：本机所有容器的 CPU、内存、网络、块 IO、重启次数、运行时长。
   - Redis、Postgres：装了才采，账号从 `credentials.env` 读取，改密码后自动跟上。
-  - 证书（`tlscheck`）：启用 TLS 后每小时读一次每张证书文件的剩余时间。
+  - 证书（`tlscheck`）：配置了 `SITES` 时每小时连一次各站点 443，取线上证书的剩余时间（需要容器能访问本机公网 IP）。
   - 指标名是 Prometheus 风格（VM 开了 `-opentelemetry.usePrometheusNaming`），如 `system_filesystem_utilization_ratio`、`container_restarts_total`、`redis_memory_used_bytes`。
 - **docker.sock**：采集容器指标要把 `/var/run/docker.sock` 只读挂进 Collector。只读挂载也能调用全部 Docker API，等同宿主机 root。Collector 不发布端口，只在 `base-net` 内收 OTLP。
 - **容器日志**（装了 VL 才启用）：读取 Docker json-file 日志，从启用后的新日志开始。
   - 需要日志驱动为 json-file，`make dockerconf` 已配置。
   - 日志里带 `log.file.path`（含容器 ID），不带容器名。
-- **查询入口**：经 Nginx 访问 `http://<主机>/vm/`（vmui 在 `/vm/vmui/`）、`/vl/`（UI 在 `/vl/select/vmui/`）、`/vmalert/`（规则与告警状态）、`/am/`（Alertmanager，可设静默），都用 Basic Auth 登录。
+- **查询入口**：经 Traefik 访问 `https://<主机>/vm/`（vmui 在 `/vm/vmui/`）、`/vl/`（UI 在 `/vl/select/vmui/`）、`/vmalert/`（规则与告警状态）、`/am/`（Alertmanager，可设静默），都用 Basic Auth 登录。
   - 账号密码见 `/opt/base/credentials.env` 的 `OBS_AUTH_USER` / `OBS_AUTH_PASSWORD`。
-  - 未启用 TLS 时密码明文传输，建议先 `make tls`。
 - **独立域名**：在 `SITES` 里写如 `logs.example.com victorialogs`，打开即直达，见「域名与 TLS」。
-- 卸载 VM 或 VL 时，OTel 导出和 Nginx 入口会自动撤掉。
+- 卸载 VM 或 VL 时，OTel 导出和 Traefik 入口（容器标签）随容器一起撤掉。
 
 ## 告警
 
@@ -241,7 +243,7 @@ make victoriametrics otel alert
 
 ```bash
 make status                  # 查看组件、证书状态与站点一览
-make update                  # 拉取最新代码并自动同步已安装组件（如热重载 Nginx 配置与站点证书）
+make update                  # 拉取最新代码并自动同步已安装组件（如按 SITES 刷新 Traefik 站点）
 ```
 
 ## 备份与恢复
@@ -261,7 +263,7 @@ make restore-redis BACKUP=20261117-033000 CONFIRM=yes
 | postgres | `postgres.sql.gz` | `pg_dumpall`，不停服务 |
 | redis | `redis.rdb.gz` | `redis-cli --rdb`，不停服务 |
 | victoriametrics | `victoriametrics.tar.gz` | 快照，不停服务 |
-| nginx | `nginx.tar.gz` | 证书与 Let's Encrypt 账号；重签也行，备份是为了避开签发频率限制 |
+| traefik | `traefik.tar.gz` | `acme.json`（证书与 Let's Encrypt 账号）；重签也行，备份是为了避开签发频率限制 |
 | — | `credentials.env` | 备份当时的账号密码 |
 
 - VictoriaLogs 的日志不备份。
@@ -272,7 +274,7 @@ make restore-redis BACKUP=20261117-033000 CONFIRM=yes
 **恢复**：
 
 - 组件要先在运行。
-- 原数据目录不会删除，会改名为 `<组件>/data.before-restore-<时间>`（nginx 为 `certbot/conf.before-restore-<时间>`）。确认无误后手工删除。
+- 原数据目录不会删除，会改名为 `<组件>/data.before-restore-<时间>`（traefik 为 `acme.before-restore-<时间>`）。确认无误后手工删除。
 - postgres 在新初始化的空库上导入，导入后把密码改回 `credentials.env` 里的当前值。
 - redis 开着 AOF：先关 AOF 载入 RDB，再在线开启 AOF 等它重写完，最后正常启动。
 - 换新机器恢复：
@@ -289,7 +291,7 @@ make restore-redis BACKUP=20261117-033000 CONFIRM=yes
 |---|---|---|
 | `REDIS_PASSWORD` | redis | 随机 48 位 |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | postgres | `postgres` / 随机 |
-| `OBS_AUTH_USER` / `OBS_AUTH_PASSWORD` | nginx（`/vm/` `/vl/` 入口） | `admin` / 随机 |
+| `OBS_AUTH_USER` / `OBS_AUTH_PASSWORD` | traefik（`/vm/` `/vl/` 等观测入口与 Dashboard） | `admin` / 随机 |
 
 - **自动生成**：安装组件时缺什么生成什么，已有的不覆盖。
 - **预生成**：`make passwords`（全部）或 `make passwords STEPS="redis postgres"`，生成后再安装。
@@ -297,13 +299,13 @@ make restore-redis BACKUP=20261117-033000 CONFIRM=yes
   - 用户名：小写字母、数字、下划线。
   - 密码：16-128 位字母、数字或 `._~+-`。
   - 不合规会拒绝安装，避免 `$`、`:`、引号被 compose 或 htpasswd 误解析。
-- **手改密码**：直接改文件里的值，再执行 `make <组件>` 生效（redis 重建容器，postgres 同步到库里，nginx reload）。
-- **轮换**：`make rotate-password-redis` / `rotate-password-postgres` / `rotate-password-nginx`，需确认，非交互加 `CONFIRM=yes`。
+- **手改密码**：直接改文件里的值，再执行 `make <组件>` 生效（redis 重建容器，postgres 同步到库里，traefik 重建容器）。
+- **轮换**：`make rotate-password-redis` / `rotate-password-postgres` / `rotate-password-traefik`，需确认，非交互加 `CONFIRM=yes`。
   - redis：重建容器。
   - postgres：在库里 `ALTER USER`，不重启。
-  - nginx：重写 htpasswd 并 reload。
+  - traefik：重写 htpasswd 并重建容器。
   - 使用方要同步换密码。
-- **改用户名**：Postgres 用户名只在首次初始化数据目录时生效，之后改要手工在库里处理；观测入口用户名改完执行 `make nginx` 即生效。
+- **改用户名**：Postgres 用户名只在首次初始化数据目录时生效，之后改要手工在库里处理；观测入口用户名改完执行 `make traefik` 即生效。
 - **清除**：清除组件时，它的账号密码一并从文件中删除。
 
 ## 代码结构
@@ -342,7 +344,7 @@ compose 组件另外在文件里登记 `COMPONENTS+=(...)`（服务名、就绪�
 ## 测试
 
 ```bash
-make test           # shellcheck + Ubuntu 22.04/24.04/26.04 单测 + nginx/OTel/告警规则/Alertmanager/compose 模板校验，需本机 Docker
+make test           # shellcheck + Ubuntu 22.04/24.04/26.04 单测 + Traefik 路由/OTel/告警规则/Alertmanager/compose 模板校验，需本机 Docker
 ```
 
 ## 许可证
