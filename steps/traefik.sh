@@ -15,7 +15,6 @@ traefik_dir() { echo "$DEPLOY_DIR/traefik"; }
 
 traefik_env() {
   echo "IMAGE=$TRAEFIK_IMAGE"
-  echo "NGINX_IMAGE=$NGINX_IMAGE"
 }
 
 # 确保 acme.json 存在且权限为 0600（Traefik 安全要求）
@@ -109,16 +108,13 @@ accessLog: {}
 EOF
 
   write_if_changed "$d/conf.d/global.yml" <"$BASE_DIR/templates/traefik/conf.d/global.yml" && changed=0
-  write_if_changed "$d/error-pages.conf" <"$BASE_DIR/templates/traefik/error-pages.conf" && changed=0
-  write_if_changed "$d/html/404.html" <"$BASE_DIR/templates/traefik/html/404.html" && changed=0
-  write_if_changed "$d/html/503.html" <"$BASE_DIR/templates/traefik/html/503.html" && changed=0
 
   return $changed
 }
 
 traefik_prepare() {
   local changed=1
-  install -d -m 0755 "$(traefik_dir)"/{conf.d,acme,auth,html}
+  install -d -m 0755 "$(traefik_dir)"/{conf.d,acme,auth}
   ensure_acme_json
   ensure_traefik_obs_auth && changed=0
   render_traefik_config && changed=0

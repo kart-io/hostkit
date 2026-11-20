@@ -16,25 +16,3 @@ http:
         stsPreload: true
         contentTypeNosniff: true
         customFrameOptionsValue: "SAMEORIGIN"
-
-    error-pages-middleware:
-      errors:
-        status:
-          - "400-599"
-        service: "error-pages-svc"
-        query: "/{status}.html"
-
-  services:
-    error-pages-svc:
-      loadBalancer:
-        servers:
-          - url: "http://error-pages:80"
-
-  routers:
-    catchall-404:
-      entryPoints:
-        - "websecure"
-      rule: "PathPrefix(`/`)"
-      priority: 1
-      service: "error-pages-svc"
-      tls: {}

@@ -28,16 +28,6 @@ services:
       - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
       - "traefik.http.routers.traefik-dashboard.tls=true"
 
-  error-pages:
-    image: ${NGINX_IMAGE}
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - ./html:/usr/share/nginx/html:ro
-      - ./error-pages.conf:/etc/nginx/conf.d/default.conf:ro
-    networks: [base]
-
 networks:
   base:
     name: ${NETWORK_NAME}
