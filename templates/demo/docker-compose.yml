@@ -13,6 +13,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.demo.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.demo.priority=3"
       - "traefik.http.routers.demo.entrypoints=websecure"
       - "traefik.http.routers.demo.tls=true"
       - "traefik.http.services.demo.loadbalancer.server.port=80"

@@ -98,10 +98,10 @@ EOF
     tls:
       insecure: true
 EOF
-    # 直接读每张证书文件（宿主机根目录挂在 /hostfs），不依赖域名解析，也不受 Nginx 是否在跑影响
+    # 证书在 Traefik 的 acme.json 里，没有 PEM 文件，只能连各站点 443 查线上证书；需要容器能访问本机公网 IP
     if ((tls)); then
       printf '  tlscheck:\n    collection_interval: 1h\n    targets:\n'
-      for dom in $(certs); do printf '      - file_path: /hostfs%s/fullchain.pem\n' "$(cert_dir "$dom")"; done
+      for dom in $(site_domains); do printf '      - endpoint: %s:443\n' "$dom"; done
     fi
     ((vl)) && cat <<'EOF'
   file_log/docker:

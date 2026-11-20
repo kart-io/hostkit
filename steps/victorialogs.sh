@@ -2,7 +2,7 @@
 # VictoriaLogs 日志存储；装后 OTel 自动导出日志、Nginx 自动出现 /vl/
 
 COMPONENTS+=("victorialogs victorialogs http 9428 /vl/health")
-OBS_ROUTES+=("victorialogs /vl/ victorialogs:9428")
+SITE_SERVICES+=("victorialogs victorialogs /vl/select/vmui/")
 
 victorialogs_install()   { comp_install victorialogs; }
 victorialogs_uninstall() { comp_undo victorialogs; }

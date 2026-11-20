@@ -2,7 +2,7 @@
 # VictoriaMetrics 指标存储；装后 OTel 自动导出指标、Nginx 自动出现 /vm/
 
 COMPONENTS+=("victoriametrics victoriametrics http 8428 /vm/health")
-OBS_ROUTES+=("victoriametrics /vm/ victoriametrics:8428")
+SITE_SERVICES+=("victoriametrics victoriametrics /vm/")
 
 victoriametrics_install()   { comp_install victoriametrics; }
 victoriametrics_uninstall() { comp_undo victoriametrics; }

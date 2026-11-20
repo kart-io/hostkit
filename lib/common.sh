@@ -4,7 +4,7 @@
 # 项目名：状态目录、systemd 单元、配置文件名、备份指标名都由它派生
 PROJECT=hostkit
 METRIC_PREFIX=${PROJECT//-/_}
-# 生成文件的首行；nginx 据此区分生成的入口文件和业务文件
+# 生成文件的首行
 GEN_HEADER="# 由 $PROJECT 生成，勿手改"
 
 VERSIONS_FILE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/versions.env
@@ -85,7 +85,6 @@ load_config() {
   : "${SITES:=}"
   : "${LE_EMAIL:=}"
   : "${LE_STAGING:=0}"
-  : "${TLS_SKIP_DNS_CHECK:=0}"
   # 版本只在 versions.env 维护；环境变量、config.env 已设的不覆盖
   local k v
   while IFS='=' read -r k v || [[ -n $k ]]; do

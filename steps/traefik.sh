@@ -125,6 +125,7 @@ EOF
 
 traefik_prepare() {
   local changed=1
+  sites_check
   install -d -m 0755 "$(traefik_dir)"/{conf.d,acme,auth,html,plugins-local}
   ensure_acme_json
   ensure_traefik_obs_auth && changed=0
@@ -135,3 +136,108 @@ traefik_prepare() {
 traefik_post() {
   log "Traefik 网关已就绪 (HTTP :80 / HTTPS :443 / Dashboard :443/traefik)"
 }
+
+# 站点表：SITES 去掉空行和注释，每行「域名 服务」
+sites() {
+  local dom s
+  while read -r dom s _; do
+    [[ -z $dom || $dom == \#* ]] || echo "$dom $s"
+  done <<<"${SITES:-}"
+}
+
+site_domains() { sites | awk '{print $1}'; }
+
+# 输出「组件 入口路径」
+site_service() {
+  local line svc n entry
+  for line in "${SITE_SERVICES[@]}"; do
+    read -r svc n entry <<<"$line"
+    [[ $svc == "$1" ]] && { echo "$n $entry"; return 0; }
+  done
+  return 1
+}
+
+SITES_DENY="redis postgres"
+
+# 配置错误在写任何文件前拦下；不能放在 $() 里调用，die 只会退出子 shell
+sites_check() {
+  local dom s seen=" " known
+  while read -r dom s; do
+    [[ $dom =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || die "SITES: 域名不合法: $dom"
+    [[ $seen != *" $dom "* ]] || die "SITES: $dom 重复"
+    seen+="$dom "
+    [[ -n $s ]] || die "SITES: $dom 缺少服务，写成「$dom 服务」"
+    [[ " $SITES_DENY " != *" ${s%%:*} "* ]] || die "SITES: $dom 不能绑定 $s，数据库不经网关对外；需要访问用 SSH 隧道"
+    if ! [[ $s == main || $s =~ ^[A-Za-z0-9_.-]+:[0-9]+$ ]] && ! site_service "$s" >/dev/null; then
+      known=$(printf '%s\n' "${SITE_SERVICES[@]}" | awk '{print $1}' | xargs)
+      die "SITES: $dom 的服务 $s 不认识；可用 main、$known，或 容器名:端口"
+    fi
+  done < <(sites)
+}
+
+# 每个站点一个 Host 路由，证书由 websecure 入口的 certResolver 按 Host 自动签发。
+# main：只兜底 404，组件路径路由照常命中；内置服务：根路径跳到入口，入口为 / 时整站交给它；容器名:端口：整站反代
+render_traefik_sites() {
+  local f dom s id n entry routers="" mws="" svcs=""
+  f=$(traefik_dir)/conf.d/sites.yml
+  sites_check
+  if [[ -z $(sites) ]]; then
+    [[ ! -e $f ]] || { rm -f "$f"; log "已移除 $f"; }
+    return 0
+  fi
+  while read -r dom s; do
+    id=site-${dom//./-}
+    if [[ $s == main ]]; then
+      routers+=$(site_router "$id" "Host(\`$dom\`)" 2 noop@internal custom-404@file)
+    elif read -r n entry < <(site_service "$s"); then
+      comp_installed "$n" || warn "$dom 绑定的 $s 未安装（make $n），装好前访问返回 404"
+      if [[ $entry == / ]]; then
+        routers+=$(site_router "$id" "Host(\`$dom\`)" 4 "$s@docker")
+      else
+        routers+=$(site_router "$id" "Host(\`$dom\`)" 4 noop@internal custom-404@file)
+        routers+=$(site_router "$id-root" "Host(\`$dom\`) && Path(\`/\`)" 1000 noop@internal "$id-root")
+        mws+=$'\n'"    $id-root:"$'\n'"      redirectRegex:"$'\n'"        regex: \".*\""$'\n'"        replacement: \"https://$dom$entry\""
+      fi
+    else
+      routers+=$(site_router "$id" "Host(\`$dom\`)" 1000 "$id")
+      svcs+=$'\n'"    $id:"$'\n'"      loadBalancer:"$'\n'"        servers:"$'\n'"          - url: \"http://$s\""
+    fi
+  done < <(sites)
+  {
+    echo "$GEN_HEADER，来源 config.env 的 SITES"
+    echo "http:"
+    echo "  routers:$routers"
+    [[ -z $mws ]] || echo "  middlewares:$mws"
+    [[ -z $svcs ]] || echo "  services:$svcs"
+  } | write_if_changed "$f"
+}
+
+# 参数：名称 规则 优先级 服务 [中间件]；前面带换行，便于拼接
+site_router() {
+  printf '\n    %s:\n      rule: "%s"\n      entryPoints: [websecure]\n      priority: %s\n      service: "%s"\n' "$1" "$2" "$3" "$4"
+  [[ -z ${5:-} ]] || printf '      middlewares: ["%s"]\n' "$5"
+  printf '      tls: {}'
+}
+
+# 有站点即会签证书；OTel 据此连各站点 443 检查证书剩余时间
+tls_on() { comp_installed traefik && [[ -n $(sites) ]]; }
+
+# 文件 provider 监听 conf.d，改 SITES 后无需重启
+traefik_sync() { render_traefik_sites; }
+
+# 证书能重新签发；备份是为了重建时不撞 Let's Encrypt 频率限制
+traefik_backup() {
+  [[ -s $(traefik_dir)/acme/acme.json ]] || return 0
+  tar -C "$(traefik_dir)" -czf "$1/traefik.tar.gz" acme
+}
+
+# 目录是 bind mount，先停容器再换，否则容器仍指向改名后的旧目录
+traefik_restore() {
+  local d; d=$(traefik_dir)
+  ccompose traefik down
+  if [[ -d $d/acme ]]; then mv "$d/acme" "$d/acme.before-restore-$(date +%Y%m%d-%H%M%S)"; fi
+  tar -C "$d" -xzf "$1"
+  comp_install traefik
+}
+
+traefik_purge_hint() { echo "$DEPLOY_DIR/traefik（配置、证书）及观测入口账号"; }

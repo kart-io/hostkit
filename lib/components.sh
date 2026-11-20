@@ -6,16 +6,15 @@
 #   <n>_post     安装后执行
 #   <n>_postundo 卸载后执行
 #   <n>_rotate   轮换密码后让新密码生效（不实现则重跑安装，按新 .env 重建容器）
-#   <n>_sync     任一组件装/卸后执行，按「当前装了什么」更新自身配置（如 OTel 导出、Nginx 入口）
+#   <n>_sync     任一组件装/卸后执行，按「当前装了什么」更新自身配置（如 OTel 导出、Traefik 站点）
 #   <n>_backup   备份到给定目录，文件名用 <n>.*（make backup 定时调用）
 #   <n>_restore  从给定的备份文件恢复（make restore-<n>）
 
 # 组件 compose服务名(即 base-net 内主机名) 就绪检查(http 端口 路径 | exec 命令)
 COMPONENTS=()
-# 经 Nginx 暴露、带 Basic Auth 的观测后端：组件 路径 内网上游（主机名即 SITES 里的服务名）
-OBS_ROUTES=()
-# 经 Nginx 公开暴露（无鉴权）的应用：组件 路径 内网上游（主机名即 SITES 里的服务名）
-WEB_ROUTES=()
+# SITES 里可直接绑定的内置服务：服务名（即 Traefik 标签里的 service 名） 组件 入口路径
+# 入口路径为 / 时整个域名交给该服务，否则域名根路径跳到入口路径
+SITE_SERVICES=()
 
 # 卸载时 Docker 可能已被卸载或没运行
 docker_up() { command -v docker &>/dev/null && docker info &>/dev/null; }

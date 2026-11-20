@@ -24,26 +24,16 @@ status_components() {
   done
 }
 
-# 站点与证书一览
+# 站点与证书一览；证书由 Traefik 签发并存在 acme.json
 status_sites() {
-  local acme_f doms d
-  acme_f="$DEPLOY_DIR/traefik/acme/acme.json"
-  if [[ -f $acme_f && -s $acme_f ]]; then
-    doms=$(grep -o '"main": "[^"]*"' "$acme_f" 2>/dev/null | cut -d'"' -f4 || true)
-    if [[ -n $doms ]]; then
-      while read -r d; do
-        [[ -n $d ]] && echo "站点 (TLS 正常): https://$d"
-      done <<<"$doms"
-      return
-    fi
-  fi
-  if declare -F sites >/dev/null && [[ -n $(sites) ]]; then
-    while read -r dom s; do
-      echo "站点: $dom → $s"
-    done < <(sites)
-  else
-    echo "网关: Traefik 声明式路由生效中 (按容器 labels 自动管理)"
-  fi
+  local acme_f issued dom s st
+  [[ -n $(sites) ]] || { echo "站点: 未配置 SITES，只能用 IP 访问组件路径"; return; }
+  acme_f=$DEPLOY_DIR/traefik/acme/acme.json
+  issued=" $(grep -o '"main": *"[^"]*"' "$acme_f" 2>/dev/null | cut -d'"' -f4 | xargs) "
+  while read -r dom s; do
+    if [[ $issued == *" $dom "* ]]; then st=已签发; else st="未签发（DNS 是否指向本机，见 traefik 容器日志）"; fi
+    echo "站点: $dom → $s  证书 $st  https://$dom"
+  done < <(sites)
 }
 
 status_backup() {
