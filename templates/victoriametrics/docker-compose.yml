@@ -13,6 +13,13 @@ services:
       - -opentelemetry.usePrometheusNaming
     volumes:
       - ./data:/victoria-metrics-data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.victoriametrics.rule=PathPrefix(`/vm`)"
+      - "traefik.http.routers.victoriametrics.entrypoints=websecure"
+      - "traefik.http.routers.victoriametrics.tls=true"
+      - "traefik.http.routers.victoriametrics.middlewares=auth-obs@file"
+      - "traefik.http.services.victoriametrics.loadbalancer.server.port=8428"
     networks: [base]
 
 networks:

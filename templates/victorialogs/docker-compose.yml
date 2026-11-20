@@ -11,6 +11,13 @@ services:
       - -http.pathPrefix=/vl
     volumes:
       - ./data:/victoria-logs-data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.victorialogs.rule=PathPrefix(`/vl`)"
+      - "traefik.http.routers.victorialogs.entrypoints=websecure"
+      - "traefik.http.routers.victorialogs.tls=true"
+      - "traefik.http.routers.victorialogs.middlewares=auth-obs@file"
+      - "traefik.http.services.victorialogs.loadbalancer.server.port=9428"
     networks: [base]
 
 networks:

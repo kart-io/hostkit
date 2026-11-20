@@ -1,0 +1,34 @@
+http:
+  middlewares:
+    auth-obs:
+      basicAuth:
+        usersFile: "/etc/traefik/auth/htpasswd"
+
+    strip-traefik-prefix:
+      stripPrefix:
+        prefixes:
+          - "/traefik"
+
+    security-headers:
+      headers:
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        contentTypeNosniff: true
+        customFrameOptionsValue: "SAMEORIGIN"
+
+    error-pages-middleware:
+      errors:
+        status:
+          - "400-599"
+        service: "error-pages@docker"
+        query: "/{status}.html"
+
+  routers:
+    catchall-404:
+      entryPoints:
+        - "websecure"
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: "error-pages@docker"
+      tls: {}

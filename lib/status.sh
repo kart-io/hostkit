@@ -24,22 +24,26 @@ status_components() {
   done
 }
 
-# 每个站点一行：服务、DNS、证书、实际访问地址，加站点访问不了时从这里看卡在哪
+# 站点与证书一览
 status_sites() {
-  local dom s ip dns cert end
-  [[ -n $(sites) ]] || { echo "站点: 未配置 SITES"; return; }
-  ip=$(detect_public_ip 2>/dev/null) || ip=""
-  while read -r dom s; do
-    dns=-; [[ -z $ip ]] || dns=$(dns_state "$dom" "$ip")
-    if cert_has "$dom"; then
-      end=$(openssl x509 -enddate -noout -in "$(cert_dir "$dom")/fullchain.pem" | cut -d= -f2)
-      cert="剩余 $(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 )) 天"
-    else
-      cert=未签发
+  local acme_f doms d
+  acme_f="$DEPLOY_DIR/traefik/acme/acme.json"
+  if [[ -f $acme_f && -s $acme_f ]]; then
+    doms=$(grep -o '"main": "[^"]*"' "$acme_f" 2>/dev/null | cut -d'"' -f4 || true)
+    if [[ -n $doms ]]; then
+      while read -r d; do
+        [[ -n $d ]] && echo "站点 (TLS 正常): https://$d"
+      done <<<"$doms"
+      return
     fi
-    echo "站点: $dom → $s  DNS $dns  证书 $cert  $(site_tls "$dom" && echo https || echo http)://$dom"
-  done < <(sites)
-  tls_enabled || echo "HTTPS 未启用（make tls）"
+  fi
+  if declare -F sites >/dev/null && [[ -n $(sites) ]]; then
+    while read -r dom s; do
+      echo "站点: $dom → $s"
+    done < <(sites)
+  else
+    echo "网关: Traefik 声明式路由生效中 (按容器 labels 自动管理)"
+  fi
 }
 
 status_backup() {

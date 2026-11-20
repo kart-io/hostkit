@@ -24,8 +24,7 @@ STEPS=(
   "1 secgroup        输出安全组放行清单"
   "1 netcheck        检查 Docker 网络"
   "2 network         创建 Compose 网络"
-  "2 nginx           部署 Nginx"
-  "2 tls             Let's Encrypt 签发与自动续期"
+  "2 traefik         部署 Traefik 声明式网关"
   "3 redis           Redis"
   "3 postgres        PostgreSQL"
   "3 victoriametrics VictoriaMetrics（指标）"
@@ -33,7 +32,7 @@ STEPS=(
   "3 otel            OTel Collector（OTLP、主机/容器/中间件指标、容器日志）"
   "3 alert           告警（vmalert + Alertmanager → 飞书）"
   "3 backup          定时备份（systemd timer）"
-  "3 demo            测试页（Nginx / 公开访问）"
+  "3 demo            测试页（Traefik / 公开访问）"
 )
 for _line in "${STEPS[@]}"; do
   read -r _ _name _ <<<"$_line"

@@ -10,6 +10,12 @@ services:
     volumes:
       - ./conf.d:/etc/nginx/conf.d:ro
       - ./html:/usr/share/nginx/html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.demo.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.demo.entrypoints=websecure"
+      - "traefik.http.routers.demo.tls=true"
+      - "traefik.http.services.demo.loadbalancer.server.port=80"
     networks: [base]
 
 networks:

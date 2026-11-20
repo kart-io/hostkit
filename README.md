@@ -18,12 +18,11 @@ make list                          # 步骤列表，及各步骤是否支持卸�
 
 ```bash
 git clone git@kart.github.com:kart-io/hostkit.git && cd hostkit
-cp config.env.example config.env   # 域名填 SITES、证书邮箱填 LE_EMAIL，要告警填 ALERT_FEISHU_*
+cp config.env.example config.env   # 证书邮箱填 LE_EMAIL，要告警填 ALERT_FEISHU_*
 
-make install                       # 1. 基础环境：Docker、Swap、UFW、SSH 加固、网络、Nginx；按输出放行安全组
-make tls                           # 2. HTTPS（配了 SITES 才需要，域名需已解析到本机公网 IP）
+make install                       # 1. 基础环境：Docker、Swap、UFW、SSH 加固、网络、Traefik 网关；按输出放行安全组
 
-make demo                          # 3. 测试页，浏览器打开 http://<域名或公网IP>/ 看到「hostkit 部署正常」即链路通
+make demo                          # 2. 测试页，浏览器打开 http://<域名或公网IP>/ 看到「hostkit 部署正常」即链路通
 make uninstall-demo                #    验证完腾出 /
 
 make redis postgres                # 4. 可选组件按需装
@@ -64,9 +63,8 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 | ufw | 删除本脚本加的规则；安装前 UFW 没启用就关掉它；如果 UFW 要继续启用，保留 SSH 端口规则 | — |
 | ssh | 删除 `00-hostkit.conf`，先在防火墙放行原 SSH 端口，再生效 | — |
 | network | 删除 `base-net`（仍有容器在用时保留） | — |
-| nginx | `compose down` | 删除镜像和 `$DEPLOY_DIR/nginx`（含证书、观测入口账号） |
-| tls | 停掉续期 timer，Nginx 切回 HTTP | 删除证书和 Let's Encrypt 账号 |
-| redis / postgres / victoriametrics / victorialogs / otel / alert | `compose down`，联动更新 OTel 采集、告警规则和 Nginx 入口；redis 另删 sysctl | 删除镜像和 `$DEPLOY_DIR/<组件>` |
+| traefik | `compose down` | 删除镜像和 `$DEPLOY_DIR/traefik`（含 acme 证书、观测入口账号） |
+| redis / postgres / victoriametrics / victorialogs / otel / alert | `compose down`，联动更新 OTel 采集、告警规则；redis 另删 sysctl | 删除镜像和 `$DEPLOY_DIR/<组件>` |
 | backup | 停掉备份 timer，备份文件保留 | 删除 `$BACKUP_DIR` 下全部备份 |
 
 ## 步骤
@@ -81,16 +79,15 @@ make status                        # 5. 查看整体状态；账号密码在 /op
 | 1 | secgroup | 输出安全组需放行的端口清单 | DMI 识别云厂商，给出控制台位置和公网 IP |
 | 1 | netcheck | 检查 ip_forward、bridge 网段冲突、拉镜像跑容器 | |
 | 2 | network | 创建外部网络 `base-net` | |
-| 2 | nginx | compose 部署 Nginx（80/443） | 有证书自动用 HTTPS 配置 |
-| 2 | tls | Let's Encrypt（webroot）签发，切换 HTTPS，systemd timer 每天两次续期 | 签发前校验域名解析到本机公网 IP |
+| 2 | traefik | compose 部署 Traefik 声明式网关（80/443），内置全自动 ACME TLS 证书与动态路由 | 自动识别容器 Labels 发现路由并自动签发证书 |
 | 3 | redis | Redis，开启密码与 AOF | 密码首次生成后保留；写入 `vm.overcommit_memory=1` |
 | 3 | postgres | PostgreSQL | 密码首次生成后保留 |
-| 3 | victoriametrics | 指标存储，保留 `VM_RETENTION` | 装后自动出现 Nginx `/vm/` 入口和 OTel 指标导出 |
-| 3 | victorialogs | 日志存储，保留 `VL_RETENTION` | 装后自动出现 Nginx `/vl/` 入口和 OTel 日志导出 |
+| 3 | victoriametrics | 指标存储，保留 `VM_RETENTION` | 自带 Traefik `/vm/` 入口和 OTel 指标导出 |
+| 3 | victorialogs | 日志存储，保留 `VL_RETENTION` | 自带 Traefik `/vl/` 入口和 OTel 日志导出 |
 | 3 | otel | OTel Collector：接收 OTLP，采集主机/容器/Redis/Postgres/证书指标、容器日志 | 采集项和导出目标按已装组件生成 |
-| 3 | alert | vmalert + Alertmanager + 飞书转发 | 规则按已装组件生成；依赖 VictoriaMetrics |
+| 3 | alert | vmalert + Alertmanager + 飞书转发 | 规则按已装组件生成；自带 Traefik `/vmalert/` 和 `/am/` 入口 |
 | 3 | backup | systemd timer 每天备份已运行的组件 | 只备份正在运行、支持备份的组件 |
-| 3 | demo | 测试页容器，Nginx `/` 公开访问，页面显示容器名、Host、客户端 IP | 验证 公网 → Nginx → `base-net` 容器 整条链路；占用 `/`，业务要挂 `/` 前先 `make uninstall-demo` |
+| 3 | demo | 测试页容器，Traefik `/` 公开访问，页面显示容器名、Host、客户端 IP | 验证 公网 → Traefik → `base-net` 容器 整条链路；占用 `/`，业务要挂 `/` 前先 `make uninstall-demo` |
 
 ## 需要人工处理的事
 
