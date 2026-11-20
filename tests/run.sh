@@ -118,6 +118,15 @@ docker rm -f "$c" >/dev/null
 check grep -q "hostkit-test-offnet 没接入 $NETWORK_NAME" <<<"$msg"
 SITES=""; render_traefik_sites || true
 echo "  ok   反代目标容器没接入 $NETWORK_NAME 时提示"
+# shellcheck disable=SC2329  # 桩函数供 traefik_sync 调用
+sync_runs=$(
+  comp_running() { :; }; comp_wait() { :; }; ccompose() { echo "$*" >>"$tmp/ccompose"; }
+  : >"$tmp/ccompose"; traefik_sync; wc -l <"$tmp/ccompose"
+  : >"$tmp/ccompose"; traefik_sync; wc -l <"$tmp/ccompose"
+  : >"$tmp/ccompose"; LE_STAGING=1 traefik_sync; grep -c -- --force-recreate "$tmp/ccompose"
+)
+check test "${sync_runs//$'\n'/ }" == "1 0 1"
+echo "  ok   make update：静态配置/compose 有变化才重建 Traefik，无变化不动"
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
 TLS=0

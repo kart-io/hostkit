@@ -244,8 +244,20 @@ site_router() {
 # 有站点即会签证书；OTel 据此连各站点 443 检查证书剩余时间
 tls_on() { comp_installed traefik && [[ -n $(sites) ]]; }
 
-# 文件 provider 监听 conf.d，改 SITES 后无需重启
-traefik_sync() { render_traefik_sites || true; }
+# 文件 provider 监听 conf.d，改 SITES 无需重启；静态配置、compose、镜像版本变了才重建容器
+traefik_sync() {
+  local changed=1
+  write_if_changed "$(traefik_dir)/docker-compose.yml" <"$BASE_DIR/templates/traefik/docker-compose.yml" && changed=0
+  comp_write_env traefik && changed=0
+  render_traefik_config && changed=0
+  render_traefik_sites || true
+  if ((changed == 0)) && comp_running traefik; then
+    ccompose traefik up -d --quiet-pull --force-recreate 2>/dev/null
+    comp_wait traefik
+    log "Traefik 静态配置已更新，容器已重建"
+  fi
+  return 0
+}
 
 # 证书能重新签发；备份是为了重建时不撞 Let's Encrypt 频率限制
 traefik_backup() {

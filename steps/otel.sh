@@ -133,37 +133,37 @@ EOF
       - context: log
         statements:
           # 1. Parse JSON if body is a JSON string (wechat-api, wechat-collab)
-          - merge_maps(attributes, ParseJSON(body), "upsert") where IsString(body) and IsMatch(body, "^{")
-          - set(attributes["level"], ToUpperCase(attributes["level"])) where attributes["level"] != nil
-          - set(attributes["service"], attributes["service.name"]) where attributes["service"] == nil and attributes["service.name"] != nil
-          - set(body, attributes["msg"]) where attributes["msg"] != nil
-          - set(body, attributes["message"]) where body == nil and attributes["message"] != nil
-          - set(body, Concat([body, attributes["error"]], " - ")) where attributes["error"] != nil and body != nil
-          - set(body, Concat([body, attributes["error_reason"]], " reason=")) where attributes["error_reason"] != nil and body != nil
-          - set(body, Concat([body, attributes["task_id"]], " task_id=")) where attributes["task_id"] != nil and body != nil
-          - set(attributes["level"], "WARN") where attributes["level"] == "INFO" and attributes["status_code"] != nil and attributes["status_code"] >= 400 and attributes["status_code"] < 500
-          - set(attributes["level"], "WARN") where attributes["level"] == "INFO" and attributes["error"] != nil
-          - set(severity_text, attributes["level"]) where attributes["level"] != nil
+          - merge_maps(log.attributes, ParseJSON(log.body), "upsert") where IsString(log.body) and IsMatch(log.body, "^{")
+          - set(log.attributes["level"], ToUpperCase(log.attributes["level"])) where log.attributes["level"] != nil
+          - set(log.attributes["service"], log.attributes["service.name"]) where log.attributes["service"] == nil and log.attributes["service.name"] != nil
+          - set(log.body, log.attributes["msg"]) where log.attributes["msg"] != nil
+          - set(log.body, log.attributes["message"]) where log.body == nil and log.attributes["message"] != nil
+          - set(log.body, Concat([log.body, log.attributes["error"]], " - ")) where log.attributes["error"] != nil and log.body != nil
+          - set(log.body, Concat([log.body, log.attributes["error_reason"]], " reason=")) where log.attributes["error_reason"] != nil and log.body != nil
+          - set(log.body, Concat([log.body, log.attributes["task_id"]], " task_id=")) where log.attributes["task_id"] != nil and log.body != nil
+          - set(log.attributes["level"], "WARN") where log.attributes["level"] == "INFO" and log.attributes["status_code"] != nil and log.attributes["status_code"] >= 400 and log.attributes["status_code"] < 500
+          - set(log.attributes["level"], "WARN") where log.attributes["level"] == "INFO" and log.attributes["error"] != nil
+          - set(log.severity_text, log.attributes["level"]) where log.attributes["level"] != nil
 
           # 2. Traefik access log（JSON，第 1 步已展开；msg 为空会把 body 清空，这里重写成一行摘要）
-          - set(attributes["service"], "traefik") where attributes["service"] == nil and attributes["entryPointName"] != nil and attributes["DownstreamStatus"] != nil
-          - set(attributes["client_ip"], attributes["ClientHost"]) where attributes["service"] == "traefik" and attributes["ClientHost"] != nil
-          - set(attributes["method"], attributes["RequestMethod"]) where attributes["service"] == "traefik" and attributes["RequestMethod"] != nil
-          - set(attributes["route"], attributes["RequestPath"]) where attributes["service"] == "traefik" and attributes["RequestPath"] != nil
-          - set(attributes["status_code"], attributes["DownstreamStatus"]) where attributes["service"] == "traefik" and attributes["DownstreamStatus"] != nil
-          - set(body, Format("%s %s%s %v", [attributes["RequestMethod"], attributes["RequestHost"], attributes["RequestPath"], attributes["DownstreamStatus"]])) where attributes["service"] == "traefik" and attributes["DownstreamStatus"] != nil
-          - set(attributes["level"], "ERROR") where attributes["service"] == "traefik" and attributes["status_code"] != nil and attributes["status_code"] >= 500
-          - set(attributes["level"], "WARN") where attributes["service"] == "traefik" and attributes["status_code"] != nil and attributes["status_code"] >= 400 and attributes["status_code"] < 500
+          - set(log.attributes["service"], "traefik") where log.attributes["service"] == nil and log.attributes["entryPointName"] != nil and log.attributes["DownstreamStatus"] != nil
+          - set(log.attributes["client_ip"], log.attributes["ClientHost"]) where log.attributes["service"] == "traefik" and log.attributes["ClientHost"] != nil
+          - set(log.attributes["method"], log.attributes["RequestMethod"]) where log.attributes["service"] == "traefik" and log.attributes["RequestMethod"] != nil
+          - set(log.attributes["route"], log.attributes["RequestPath"]) where log.attributes["service"] == "traefik" and log.attributes["RequestPath"] != nil
+          - set(log.attributes["status_code"], log.attributes["DownstreamStatus"]) where log.attributes["service"] == "traefik" and log.attributes["DownstreamStatus"] != nil
+          - set(log.body, Format("%s %s%s %v", [log.attributes["RequestMethod"], log.attributes["RequestHost"], log.attributes["RequestPath"], log.attributes["DownstreamStatus"]])) where log.attributes["service"] == "traefik" and log.attributes["DownstreamStatus"] != nil
+          - set(log.attributes["level"], "ERROR") where log.attributes["service"] == "traefik" and log.attributes["status_code"] != nil and log.attributes["status_code"] >= 500
+          - set(log.attributes["level"], "WARN") where log.attributes["service"] == "traefik" and log.attributes["status_code"] != nil and log.attributes["status_code"] >= 400 and log.attributes["status_code"] < 500
 
           # 3. Traefik 自身运行日志（JSON，带 caller）
-          - set(attributes["service"], "traefik") where attributes["service"] == nil and attributes["caller"] != nil and IsMatch(attributes["caller"], "traefik/traefik")
-          - set(body, attributes["message"]) where attributes["service"] == "traefik" and attributes["message"] != nil
-          - set(severity_text, attributes["level"]) where attributes["service"] == "traefik" and attributes["level"] != nil
+          - set(log.attributes["service"], "traefik") where log.attributes["service"] == nil and log.attributes["caller"] != nil and IsMatch(log.attributes["caller"], "traefik/traefik")
+          - set(log.body, log.attributes["message"]) where log.attributes["service"] == "traefik" and log.attributes["message"] != nil
+          - set(log.severity_text, log.attributes["level"]) where log.attributes["service"] == "traefik" and log.attributes["level"] != nil
 
           # 5. Generic fallback for plain text logs (PostgreSQL etc.)
-          - set(attributes["level"], "ERROR") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\b(ERROR|FATAL)\\b")
-          - set(attributes["level"], "WARN") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\b(WARN|WARNING)\\b")
-          - set(attributes["level"], "INFO") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\bINFO\\b")
+          - set(log.attributes["level"], "ERROR") where log.attributes["level"] == nil and IsString(log.body) and IsMatch(log.body, "(?i)\\b(ERROR|FATAL)\\b")
+          - set(log.attributes["level"], "WARN") where log.attributes["level"] == nil and IsString(log.body) and IsMatch(log.body, "(?i)\\b(WARN|WARNING)\\b")
+          - set(log.attributes["level"], "INFO") where log.attributes["level"] == nil and IsString(log.body) and IsMatch(log.body, "(?i)\\bINFO\\b")
 EOF
     cat <<'EOF'
   batch: {}

@@ -164,7 +164,7 @@ LE_STAGING=1      # 先用测试环境，不消耗正式限额
 - 所有 HTTPS 响应统一加安全头（HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`，见 `templates/traefik/conf.d/global.yml` 的 `security-headers`），会覆盖后端自己下发的同名头；业务需要被跨域 iframe 嵌入时要调整这里。
 - `容器名:端口` 的容器必须接入 `base-net`，否则访问 502；`make traefik` 发现没接入会提示 `docker network connect` 命令。
 - Traefik Dashboard 在 `https://<域名>/traefik/dashboard/`，用观测入口账号登录；API 也在 `/traefik/api/`，不占用业务的 `/api`。
-- 路由优先级（大者先匹配）：`容器名:端口` 站点和根路径跳转 1000 > 组件路径（`/vm` 等）> 内置服务站点 4 > demo 3 > `main` 2 > 兜底 404 1。
+- 路由优先级（大者先匹配）：`容器名:端口` 站点和根路径跳转 1000 > 组件路径（`/vm` 等）> 内置服务站点 4 > demo 3 > `main` 2 > 兜底 404 1。因此 `/vm` `/vl` `/traefik` 等观测入口只在 `main` 和内置服务站点上可用，`容器名:端口` 站点整站交给后端，不暴露管理入口。
 
 `LE_STAGING=1` 调通后改为 0，清空 `/opt/base/traefik/acme/acme.json`（保持 0600）再执行 `make traefik` 重新签发。
 
