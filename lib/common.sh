@@ -98,6 +98,10 @@ load_config() {
   : "${BACKUP_KEEP:=7}"
   : "${BACKUP_ONCALENDAR:=*-*-* 03:30:00}"
   : "${BACKUP_POST_HOOK:=}"
+  local old
+  for old in DOMAINS TLS_SKIP_DNS_CHECK; do
+    [[ -z ${!old:-} ]] || warn "config.env 里的 $old 已不再使用（域名和证书都由 SITES 决定），可以删掉"
+  done
 }
 
 # 内容不变返回 1，调用方据此决定是否重载服务

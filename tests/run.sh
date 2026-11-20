@@ -97,6 +97,27 @@ for bad in "logs.example.com" "logs.example.com victorilogs" "Bad_Domain myapp:8
   if (SITES=$bad; sites_check) 2>/dev/null; then echo "  FAIL 应拒绝 SITES=\"$bad\""; exit 1; fi
 done
 echo "  ok   拒绝缺服务、未知服务、非法域名、重复域名、redis/postgres"
+# 生成的 traefik.yml 原样启动；conf.d 里没有 Host 路由，不会去 Let's Encrypt 申请证书
+n=$(docker run -d -v "$td/traefik.yml:/etc/traefik/traefik.yml:ro" -v "$td/conf.d:/etc/traefik/conf.d:ro" \
+  -v "$td/html:/etc/traefik/html:ro" -v "$td/plugins-local:/plugins-local:ro" -w / "$TRAEFIK_IMAGE")
+ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$n")
+for _ in {1..30}; do curl -fs -o /dev/null "http://$ip:8080/ping" && break; sleep 1; done
+hdr=$(curl -sk -D - -o /dev/null "https://$ip/nope" || true)
+docker rm -f "$n" >/dev/null
+check grep -q '^HTTP/[0-9.]* 404' <<<"$hdr"
+check grep -qi '^x-content-type-options: nosniff' <<<"$hdr"
+check grep -qi '^strict-transport-security:' <<<"$hdr"
+check grep -q 'basePath: /traefik' "$td/traefik.yml"
+# shellcheck disable=SC2016  # 反引号是 Traefik 规则语法
+check test -z "$(grep -F 'PathPrefix(`/api`)' "$ROOT/templates/traefik/docker-compose.yml")"
+echo "  ok   生成的 traefik.yml 可启动；HTTPS 统一带安全响应头；Dashboard 收在 /traefik 下，不占用 /api"
+c=$(docker run -d --name hostkit-test-offnet "$TRAEFIK_IMAGE")
+# shellcheck disable=SC2329  # 桩函数供 render_traefik_sites 调用
+msg=$(SITES="app.example.com hostkit-test-offnet:80"; warn() { echo "$*"; }; render_traefik_sites)
+docker rm -f "$c" >/dev/null
+check grep -q "hostkit-test-offnet 没接入 $NETWORK_NAME" <<<"$msg"
+SITES=""; render_traefik_sites || true
+echo "  ok   反代目标容器没接入 $NETWORK_NAME 时提示"
 
 echo "== OTel 配置校验（$OTEL_IMAGE）"
 TLS=0

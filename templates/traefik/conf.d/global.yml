@@ -4,11 +4,6 @@ http:
       basicAuth:
         usersFile: "/etc/traefik/auth/htpasswd"
 
-    strip-traefik-prefix:
-      stripPrefix:
-        prefixes:
-          - "/traefik"
-
     security-headers:
       headers:
         stsSeconds: 63072000

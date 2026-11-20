@@ -71,6 +71,8 @@ entryPoints:
   web:
     address: ":80"
     http:
+      # 名字仅大小写/连字符/下划线不同的重复请求头（如 X_Auth_User）直接删掉，防止冒充 X-Auth-User
+      aliasHeadersStrategy: delete
       redirections:
         entryPoint:
           to: "websecure"
@@ -80,6 +82,10 @@ entryPoints:
   websecure:
     address: ":443"
     http:
+      aliasHeadersStrategy: delete
+      # 所有 HTTPS 路由（含容器标签声明的）统一加安全响应头
+      middlewares:
+        - security-headers@file
       tls:
         certResolver: "le"
 
@@ -102,14 +108,19 @@ ${ca_line}
       httpChallenge:
         entryPoint: "web"
 
+# Dashboard 和它的 API 都收在 /traefik 下，不占用业务常用的 /api
 api:
   dashboard: true
   insecure: false
+  basePath: /traefik
 
+# JSON 格式便于 OTel 展开成字段
 log:
   level: "INFO"
+  format: json
 
-accessLog: {}
+accessLog:
+  format: json
 EOF
 
   write_if_changed "$d/conf.d/global.yml" <"$BASE_DIR/templates/traefik/conf.d/global.yml" && changed=0
@@ -135,7 +146,7 @@ traefik_prepare() {
 }
 
 traefik_post() {
-  log "Traefik 网关已就绪 (HTTP :80 / HTTPS :443 / Dashboard :443/traefik)"
+  log "Traefik 网关已就绪 (HTTP :80 / HTTPS :443 / Dashboard https://<域名>/traefik/dashboard/)"
 }
 
 # 站点表：SITES 去掉空行和注释，每行「域名 服务」
@@ -200,6 +211,7 @@ render_traefik_sites() {
         mws+=$'\n'"    $id-root:"$'\n'"      redirectRegex:"$'\n'"        regex: \".*\""$'\n'"        replacement: \"https://$dom$entry\""
       fi
     else
+      site_check_network "$dom" "${s%:*}"
       routers+=$(site_router "$id" "Host(\`$dom\`)" 1000 "$id")
       svcs+=$'\n'"    $id:"$'\n'"      loadBalancer:"$'\n'"        servers:"$'\n'"          - url: \"http://$s\""
     fi
@@ -211,6 +223,15 @@ render_traefik_sites() {
     [[ -z $mws ]] || echo "  middlewares:$mws"
     [[ -z $svcs ]] || echo "  services:$svcs"
   } | write_if_changed "$f"
+}
+
+# 反代目标是已存在的容器却没接入 base-net 时 Traefik 只会返回 502，提前提示；IP 和服务别名不检查
+site_check_network() {
+  local nets
+  [[ ! $2 =~ ^[0-9.]+$ ]] && docker_up || return 0
+  nets=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$2" 2>/dev/null) || return 0
+  [[ " $nets " == *" $NETWORK_NAME "* ]] ||
+    warn "$1 反代到的容器 $2 没接入 $NETWORK_NAME，访问会 502；执行 docker network connect $NETWORK_NAME $2，或在它的 compose 里加入该网络"
 }
 
 # 参数：名称 规则 优先级 服务 [中间件]；前面带换行，便于拼接

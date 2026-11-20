@@ -23,10 +23,10 @@ services:
     networks: [base]
     labels:
       - "traefik.enable=true"
-      # Dashboard 控制台（通过 /traefik 访问，受 basicauth 保护）
-      - "traefik.http.routers.traefik-dashboard.rule=PathPrefix(`/traefik`) || PathPrefix(`/api`)"
+      # Dashboard 控制台（/traefik/dashboard/，受 basicauth 保护）
+      - "traefik.http.routers.traefik-dashboard.rule=PathPrefix(`/traefik`)"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
-      - "traefik.http.routers.traefik-dashboard.middlewares=auth-obs@file,strip-traefik-prefix@file"
+      - "traefik.http.routers.traefik-dashboard.middlewares=auth-obs@file"
       - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
       - "traefik.http.routers.traefik-dashboard.tls=true"
 

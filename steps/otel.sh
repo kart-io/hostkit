@@ -145,21 +145,20 @@ EOF
           - set(attributes["level"], "WARN") where attributes["level"] == "INFO" and attributes["error"] != nil
           - set(severity_text, attributes["level"]) where attributes["level"] != nil
 
-          # 2. Parse Nginx access logs
-          - merge_maps(attributes, ExtractPatterns(body, "^(?P<client_ip>[0-9a-fA-F:.]+)\\s+-\\s+(?P<user>\\S+)\\s+\\[(?P<time>[^\\]]+)\\]\\s+\"(?P<method>[A-Z]+)\\s+(?P<route>[^\\s]+)\\s+HTTP/[0-9.]+\"\\s+(?P<status_code>[0-9]{3})\\s+(?P<response_bytes>[0-9]+)"), "upsert") where attributes["service"] == nil and IsString(body) and IsMatch(body, "^[0-9a-fA-F:.]+\\s+-\\s+\\S+\\s+\\[[0-9]{2}/[A-Za-z]{3}/[0-9]{4}:.*\" [0-9]{3}")
-          - set(attributes["service"], "nginx") where attributes["client_ip"] != nil and attributes["service"] == nil
+          # 2. Traefik access log（JSON，第 1 步已展开；msg 为空会把 body 清空，这里重写成一行摘要）
+          - set(attributes["service"], "traefik") where attributes["service"] == nil and attributes["entryPointName"] != nil and attributes["DownstreamStatus"] != nil
+          - set(attributes["client_ip"], attributes["ClientHost"]) where attributes["service"] == "traefik" and attributes["ClientHost"] != nil
+          - set(attributes["method"], attributes["RequestMethod"]) where attributes["service"] == "traefik" and attributes["RequestMethod"] != nil
+          - set(attributes["route"], attributes["RequestPath"]) where attributes["service"] == "traefik" and attributes["RequestPath"] != nil
+          - set(attributes["status_code"], attributes["DownstreamStatus"]) where attributes["service"] == "traefik" and attributes["DownstreamStatus"] != nil
+          - set(body, Format("%s %s%s %v", [attributes["RequestMethod"], attributes["RequestHost"], attributes["RequestPath"], attributes["DownstreamStatus"]])) where attributes["service"] == "traefik" and attributes["DownstreamStatus"] != nil
+          - set(attributes["level"], "ERROR") where attributes["service"] == "traefik" and attributes["status_code"] != nil and attributes["status_code"] >= 500
+          - set(attributes["level"], "WARN") where attributes["service"] == "traefik" and attributes["status_code"] != nil and attributes["status_code"] >= 400 and attributes["status_code"] < 500
 
-          # 3. Parse Nginx error logs
-          - set(attributes["service"], "nginx") where attributes["service"] == nil and IsString(body) and IsMatch(body, "^[0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \\[")
-          - set(attributes["level"], "ERROR") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[(error|crit|alert|emerg)\\]")
-          - set(attributes["level"], "WARN") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[warn\\]")
-          - set(attributes["level"], "INFO") where attributes["service"] == "nginx" and attributes["level"] == nil and IsMatch(body, "\\[(notice|info)\\]")
-
-          # 4. Set Nginx access log level based on status_code
-          - set(attributes["level"], "ERROR") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil and IsMatch(attributes["status_code"], "^5")
-          - set(attributes["level"], "WARN") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil and IsMatch(attributes["status_code"], "^4")
-          - set(attributes["level"], "INFO") where attributes["service"] == "nginx" and attributes["level"] == nil and attributes["status_code"] != nil
-          - set(severity_text, attributes["level"]) where attributes["service"] == "nginx" and attributes["level"] != nil
+          # 3. Traefik 自身运行日志（JSON，带 caller）
+          - set(attributes["service"], "traefik") where attributes["service"] == nil and attributes["caller"] != nil and IsMatch(attributes["caller"], "traefik/traefik")
+          - set(body, attributes["message"]) where attributes["service"] == "traefik" and attributes["message"] != nil
+          - set(severity_text, attributes["level"]) where attributes["service"] == "traefik" and attributes["level"] != nil
 
           # 5. Generic fallback for plain text logs (PostgreSQL etc.)
           - set(attributes["level"], "ERROR") where attributes["level"] == nil and IsString(body) and IsMatch(body, "(?i)\\b(ERROR|FATAL)\\b")
